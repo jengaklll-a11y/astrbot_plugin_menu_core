@@ -32,7 +32,7 @@ def get_local_ip():
     "astrbot_plugin_custom_menu",
     author="shskjw",
     desc="可视化菜单编辑器",
-    version="1.1.0"
+    version="1.0.0"
 )
 class CustomMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
