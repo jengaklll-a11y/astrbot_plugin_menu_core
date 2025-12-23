@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import socket
 import json
 import multiprocessing
@@ -10,6 +9,8 @@ from pathlib import Path
 from astrbot.api.star import Context, Star, register
 from astrbot.api import event
 from astrbot.api.event import filter
+from astrbot.api import logger  # Fix: Use AstrBot logger
+from astrbot.api.star import StarTools
 
 # 尝试导入依赖
 try:
@@ -19,11 +20,12 @@ try:
 
     HAS_DEPS = True
 except ImportError as e:
-    logging.getLogger("astrbot_plugin_custom_menu").error(f"❌ 依赖缺失: {e}")
+    logger.error(f"❌ 依赖缺失: {e}")  # Fix: Use AstrBot logger
     HAS_DEPS = False
 
 
-def get_local_ip():
+def _get_local_ip_sync():
+    """Synchronous implementation of getting local IP"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('8.8.8.8', 80))
@@ -34,30 +36,35 @@ def get_local_ip():
         return "127.0.0.1"
 
 
+async def get_local_ip():
+    """Asynchronous wrapper to prevent blocking the event loop"""
+    return await asyncio.to_thread(_get_local_ip_sync)
+
+
 @register(
     "astrbot_plugin_custom_menu",
     author="shskjw",
     desc="Web可视化菜单编辑器(支持LLM智能回复)",
-    version="1.5.5"
+    version="1.5.2"
 )
 class CustomMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context, config)
         self.cfg = config
         self.web_process = None
-        self.logger = logging.getLogger("astrbot_plugin_custom_menu")
+        # logger is imported globally from astrbot.api
         self.admins_id = context.get_config().get("admins_id", [])
 
     async def on_load(self):
         if not HAS_DEPS:
-            self.logger.error("❌ 缺少关键依赖，请确保 storage.py 和 renderer/menu.py 存在。")
+            logger.error("❌ 缺少关键依赖，请确保 storage.py 和 renderer/menu.py 存在。")
         else:
-            self.logger.info("✅ 菜单插件加载完毕 (LLM Tool: show_graphical_menu 已注册)")
+            logger.info("✅ 菜单插件加载完毕 (LLM Tool: show_graphical_menu 已注册)")
 
     async def on_unload(self):
         if self.web_process and self.web_process.is_alive():
             self.web_process.terminate()
-            self.logger.info("后台 Web 服务已关闭")
+            logger.info("后台 Web 服务已关闭")
 
     def is_admin(self, event: event.AstrMessageEvent) -> bool:
         if not self.admins_id: return True
@@ -74,7 +81,7 @@ class CustomMenuPlugin(Star):
             return
 
         try:
-            self.logger.info("正在渲染菜单...")
+            logger.info("正在渲染菜单...")
             root_config = load_config()
             menus = root_config.get("menus", [])
             active_menus = [m for m in menus if m.get("enabled", True)]
@@ -84,12 +91,12 @@ class CustomMenuPlugin(Star):
                 return
 
             for menu_data in active_menus:
-                self.logger.info(f"正在渲染菜单: {menu_data.get('name')}")
+                logger.info(f"正在渲染菜单: {menu_data.get('name')}")
 
                 try:
                     img = await asyncio.to_thread(render_one_menu, menu_data)
                 except Exception as e:
-                    self.logger.error(f"渲染失败: {traceback.format_exc()}")
+                    logger.error(f"渲染失败: {traceback.format_exc()}")
                     yield event_obj.plain_result(f"❌ 渲染错误 [{menu_data.get('name')}]: {e}")
                     continue
 
@@ -98,11 +105,11 @@ class CustomMenuPlugin(Star):
                 temp_path = (DATA_DIR / temp_filename).absolute()
                 img.save(temp_path)
 
-                self.logger.info(f"渲染完成，发送图片: {temp_path}")
+                logger.info(f"渲染完成，发送图片: {temp_path}")
                 yield event_obj.image_result(str(temp_path))
 
         except Exception as e:
-            self.logger.error(f"生成菜单流程异常: {e}")
+            logger.error(f"生成菜单流程异常: {e}")
             yield event_obj.plain_result(f"❌ 系统内部错误: {e}")
 
     # --- 触发方式 1: 传统指令 "菜单" ---
@@ -119,13 +126,13 @@ class CustomMenuPlugin(Star):
         当用户询问你是谁、有什么功能、查看菜单、查看帮助、指令列表时，调用此工具。
         此工具会直接发送一张包含所有功能的图形化菜单图片给用户。
         """
-        self.logger.info(f"🧠 LLM 触发了菜单工具 (User: {event.get_sender_name()})")
+        logger.info(f"🧠 LLM 触发了菜单工具 (User: {event.get_sender_name()})")
 
         async for result in self._generate_menu_chain(event):
             yield result
 
-        # 异步生成器不能 return 字符串，必须 yield 纯文本结果供 LLM 参考
-        yield event_obj.plain_result("已发送功能菜单图片。")
+        # Fix: event_obj -> event
+        yield event.plain_result("已发送功能菜单图片。")
 
     # --- 后台管理指令 ---
     @filter.command("开启后台")
@@ -151,9 +158,12 @@ class CustomMenuPlugin(Star):
             except:
                 clean_config = dict(self.cfg)
 
+            # Fix: Pass correct data_dir to subprocess to avoid StarTools dependency issues
+            data_dir_str = str(DATA_DIR.absolute())
+
             self.web_process = ctx.Process(
                 target=run_server,
-                args=(clean_config, status_queue),
+                args=(clean_config, status_queue, data_dir_str),
                 daemon=True
             )
             self.web_process.start()
@@ -167,14 +177,14 @@ class CustomMenuPlugin(Star):
                 host_conf = self.cfg.get("web_host", "0.0.0.0")
                 port = self.cfg.get("web_port", 9876)
                 token = self.cfg.get("web_token", "astrbot123")
-                show_ip = "127.0.0.1" if host_conf == "127.0.0.1" else get_local_ip()
+                show_ip = "127.0.0.1" if host_conf == "127.0.0.1" else await get_local_ip()
                 yield event.plain_result(f"✅ 启动成功！\n地址: http://{show_ip}:{port}/\n密钥: {token}")
             else:
                 if self.web_process.is_alive(): self.web_process.terminate()
                 yield event.plain_result(f"❌ 启动失败: {msg}")
 
         except Exception as e:
-            self.logger.error(f"启动异常: {e}")
+            logger.error(f"启动异常: {e}")
             yield event.plain_result(f"❌ 启动异常: {e}")
 
     @filter.command("关闭后台")

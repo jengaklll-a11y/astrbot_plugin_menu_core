@@ -1,8 +1,8 @@
 from pathlib import Path
 from .renderer.menu import render_menu
+from .storage import DATA_DIR # Fix: Use corrected storage path
 
-BASE_DIR = Path(__file__).parent
-PREVIEW_FILE = BASE_DIR / "data" / "preview.png"
+PREVIEW_FILE = DATA_DIR / "preview.png" # Fix: Hardcoded path removed
 
 def rebuild_preview():
     """触发渲染逻辑"""

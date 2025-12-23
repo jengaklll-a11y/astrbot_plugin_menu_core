@@ -12,7 +12,7 @@ if str(PLUGIN_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGIN_DIR))
 
 
-def run_server(config_dict, status_queue):
+def run_server(config_dict, status_queue, data_dir=None):
     """Web 服务进程入口"""
     try:
         # 重定向输出流，防止日志丢失
@@ -25,13 +25,23 @@ def run_server(config_dict, status_queue):
         from hypercorn.asyncio import serve
         from io import BytesIO
 
-        # 导入 storage，确保读写的是持久化目录
+        # --- FIX: Initialize storage with explicit path from main process ---
+        # This prevents StarTools dependency issues in the subprocess
         try:
+            import storage
+            if data_dir:
+                storage.setup_paths(data_dir)
+
+            # Now import safe-to-use variables
             from storage import load_config, save_config, get_assets_list, ASSETS_DIR, FONTS_DIR, BG_DIR, ICON_DIR, \
                 IMG_DIR
             from renderer.menu import render_one_menu
         except ImportError:
-            # 兼容不同运行环境的导入
+            # Fallback for relative imports
+            from . import storage
+            if data_dir:
+                storage.setup_paths(data_dir)
+
             from .storage import load_config, save_config, get_assets_list, ASSETS_DIR, FONTS_DIR, BG_DIR, ICON_DIR, \
                 IMG_DIR
             from .renderer.menu import render_one_menu
@@ -44,7 +54,6 @@ def run_server(config_dict, status_queue):
         # --- 中间件：鉴权 ---
         @app.before_request
         async def check_auth():
-            # 放行登录页、静态资源、API资源
             allow_list = ["login", "static", "serve_bg", "serve_icon", "serve_widget", "serve_fonts"]
             if request.endpoint in allow_list: return
             if not session.get("is_admin"): return redirect(url_for("login"))
@@ -73,7 +82,7 @@ def run_server(config_dict, status_queue):
         @app.route("/api/config", methods=["POST"])
         async def save_all_config():
             data = await request.get_json()
-            save_config(data)  # 写入 data/plugin_data/...
+            save_config(data)
             return jsonify({"status": "ok"})
 
         # --- API：资源列表 ---
@@ -83,7 +92,6 @@ def run_server(config_dict, status_queue):
 
         @app.route("/api/fonts", methods=["GET"])
         async def get_fonts():
-            # 列出持久化目录下的字体
             fonts = [f.name for f in FONTS_DIR.glob("*") if f.suffix.lower() in ['.ttf', '.otf', '.ttc']]
             return jsonify(fonts)
 
@@ -97,10 +105,8 @@ def run_server(config_dict, status_queue):
 
             if not u_file: return jsonify({"error": "No file"}), 400
 
-            # 生成安全文件名
             filename = f"{uuid.uuid4().hex[:8]}_{u_file.filename}"
 
-            # 根据类型存入不同的持久化子目录
             if u_type == "background":
                 target = BG_DIR / filename
             elif u_type == "icon":
@@ -120,7 +126,6 @@ def run_server(config_dict, status_queue):
         async def export_image():
             menu_data = await request.get_json()
             try:
-                # 调用后端渲染器生成图片流
                 img = await asyncio.to_thread(render_one_menu, menu_data)
                 byte_io = BytesIO()
                 img.save(byte_io, 'PNG')
@@ -132,7 +137,7 @@ def run_server(config_dict, status_queue):
                 traceback.print_exc()
                 return jsonify({"error": str(e)}), 500
 
-        # --- 静态资源服务 (指向持久化目录) ---
+        # --- 静态资源服务 ---
         @app.route("/raw_assets/backgrounds/<path:path>")
         async def serve_bg(path):
             return await send_from_directory(BG_DIR, path)
