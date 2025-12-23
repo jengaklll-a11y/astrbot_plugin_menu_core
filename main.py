@@ -3,6 +3,8 @@ import socket
 import json
 import multiprocessing
 import traceback
+import copy
+import threading
 from pathlib import Path
 
 # AstrBot API
@@ -10,15 +12,15 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import event
 from astrbot.api.event import filter
 from astrbot.api import logger
-from astrbot.api.star import StarTools
 
-# 尝试导入依赖 (延迟到 on_load 或 try块中处理，这里先声明)
 HAS_DEPS = False
 
 
 def _get_local_ip_sync():
+    """Gets local IP with a timeout to prevent long blocking"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2.0)  # Add timeout
         s.connect(('8.8.8.8', 80))
         ip = s.getsockname()[0]
         s.close()
@@ -35,21 +37,26 @@ async def get_local_ip():
     "astrbot_plugin_custom_menu",
     author="shskjw",
     desc="Web可视化菜单编辑器(支持LLM智能回复)",
-    version="1.5.3"
+    version="1.5.4"
 )
 class CustomMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context, config)
         self.cfg = config
         self.web_process = None
+        self.log_queue = None
+        self._log_consumer_task = None
         self.admins_id = context.get_config().get("admins_id", [])
 
     async def on_load(self):
-        # --- FIX: Initialize storage paths explicitly ---
         global HAS_DEPS
         try:
             from . import storage
-            storage.setup_paths()  # Must call this before accessing DATA_DIR
+            # Initialize storage paths explicitly
+            storage.plugin_storage.init_paths()
+
+            # Run migration in thread to avoid blocking loop
+            await asyncio.to_thread(storage.plugin_storage.migrate_data)
 
             from .renderer.menu import render_one_menu
             HAS_DEPS = True
@@ -62,11 +69,29 @@ class CustomMenuPlugin(Star):
         if self.web_process and self.web_process.is_alive():
             self.web_process.terminate()
             logger.info("后台 Web 服务已关闭")
+        # Stop log consumer is handled implicitly as main process shuts down,
+        # but cleaner to have a stop flag if this was a long running thread in plugin.
+        # Since plugins unload usually ends the process or reloading, queue GC is fine.
 
     def is_admin(self, event: event.AstrMessageEvent) -> bool:
         if not self.admins_id: return True
         sender_id = str(event.get_sender_id())
         return sender_id in [str(uid) for uid in self.admins_id]
+
+    def _consume_logs(self):
+        """Background thread to consume logs from subprocess"""
+        while self.web_process and self.web_process.is_alive():
+            try:
+                # Blocking get with timeout to check for process liveness
+                level, msg = self.log_queue.get(timeout=1.0)
+                if level == "ERROR":
+                    logger.error(f"[Web] {msg}")
+                elif level == "WARNING":
+                    logger.warning(f"[Web] {msg}")
+                else:
+                    logger.info(f"[Web] {msg}")
+            except:
+                continue
 
     async def _generate_menu_chain(self, event_obj):
         if not HAS_DEPS:
@@ -74,11 +99,11 @@ class CustomMenuPlugin(Star):
             return
 
         try:
-            from .storage import load_config, DATA_DIR
+            from .storage import plugin_storage
             from .renderer.menu import render_one_menu
 
             logger.info("正在渲染菜单...")
-            root_config = load_config()
+            root_config = plugin_storage.load_config()
             menus = root_config.get("menus", [])
             active_menus = [m for m in menus if m.get("enabled", True)]
 
@@ -97,7 +122,7 @@ class CustomMenuPlugin(Star):
                     continue
 
                 temp_filename = f"temp_render_{menu_data.get('id')}.png"
-                temp_path = (DATA_DIR / temp_filename).absolute()
+                temp_path = (plugin_storage.data_dir / temp_filename).absolute()
                 img.save(temp_path)
 
                 logger.info(f"渲染完成，发送图片: {temp_path}")
@@ -109,15 +134,11 @@ class CustomMenuPlugin(Star):
 
     @filter.command("菜单")
     async def menu_cmd(self, event: event.AstrMessageEvent):
-        """发送功能菜单图片"""
         async for result in self._generate_menu_chain(event):
             yield result
 
     @filter.llm_tool(name="show_graphical_menu")
     async def show_menu_tool(self, event: event.AstrMessageEvent):
-        """
-        当用户询问你是谁、有什么功能、查看菜单、查看帮助、指令列表时，调用此工具。
-        """
         logger.info(f"🧠 LLM 触发了菜单工具 (User: {event.get_sender_name()})")
         async for result in self._generate_menu_chain(event):
             yield result
@@ -139,26 +160,33 @@ class CustomMenuPlugin(Star):
 
         ctx = multiprocessing.get_context('spawn')
         status_queue = ctx.Queue()
+        self.log_queue = ctx.Queue()
 
         try:
-            try:
-                clean_config = json.loads(json.dumps(self.cfg))
-            except:
-                clean_config = dict(self.cfg)
+            # Fix: Use deepcopy instead of json load/dump
+            clean_config = copy.deepcopy(self.cfg)
 
             # Pass absolute path string to subprocess
-            from .storage import DATA_DIR
-            data_dir_str = str(DATA_DIR.absolute())
+            from .storage import plugin_storage
+            if not plugin_storage.data_dir:
+                yield event.plain_result("❌ 存储路径未初始化")
+                return
 
-            # Import run_server here to avoid circular imports if any
+            data_dir_str = str(plugin_storage.data_dir.absolute())
+
+            # Import run_server here
             from .web_server import run_server
 
             self.web_process = ctx.Process(
                 target=run_server,
-                args=(clean_config, status_queue, data_dir_str),
+                args=(clean_config, status_queue, self.log_queue, data_dir_str),
                 daemon=True
             )
             self.web_process.start()
+
+            # Start log consumer thread
+            self._log_consumer_task = threading.Thread(target=self._consume_logs, daemon=True)
+            self._log_consumer_task.start()
 
             try:
                 msg = await asyncio.to_thread(status_queue.get, True, 10)
@@ -188,4 +216,5 @@ class CustomMenuPlugin(Star):
         self.web_process.terminate()
         self.web_process.join()
         self.web_process = None
+        self.log_queue = None
         yield event.plain_result("✅ 后台已关闭")

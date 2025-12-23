@@ -1,21 +1,12 @@
+import traceback
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from pathlib import Path
-from ..storage import ASSETS_DIR, FONTS_DIR, ICON_DIR, BG_DIR, IMG_DIR
 
-# Fix: Use AstrBot logger
-try:
-    from astrbot.api import logger
-except ImportError:
-    import logging
-
-    logger = logging.getLogger(__name__)
+# Fix: Strictly use AstrBot logger without fallback
+from astrbot.api import logger
+from ..storage import plugin_storage
 
 # --- Constants ---
-# ... (same as previous optimized code)
-# Since the user asked for full file content in previous steps,
-# I assume the main logic is correct.
-# I will output the file with correct imports.
-
 BASE_PADDING_X = 40
 BASE_GROUP_GAP = 30
 BASE_ITEM_H = 90
@@ -23,26 +14,18 @@ BASE_ITEM_GAP_X = 15
 BASE_ITEM_GAP_Y = 15
 
 
-# ... (Helper functions: load_font, hex_to_rgb, draw_text_with_shadow, draw_glass_rect, render_item_content)
-# These remain largely the same logic but ensure logger is available.
-
 def load_font(font_name: str, size: int) -> ImageFont.FreeTypeFont:
-    if not font_name:
-        try:
-            return ImageFont.load_default(size=int(size))
-        except AttributeError:
-            return ImageFont.load_default()
+    if not font_name or not plugin_storage.fonts_dir:
+        return ImageFont.load_default()
 
-    font_path = FONTS_DIR / font_name
+    font_path = plugin_storage.fonts_dir / font_name
     try:
         if font_path.exists():
             return ImageFont.truetype(str(font_path), int(size))
         return ImageFont.load_default()
-    except Exception:
-        try:
-            return ImageFont.load_default(size=int(size))
-        except AttributeError:
-            return ImageFont.load_default()
+    except Exception as e:
+        logger.warning(f"Font load error ({font_name}): {e}")
+        return ImageFont.load_default()
 
 
 def hex_to_rgb(hex_color):
@@ -50,9 +33,10 @@ def hex_to_rgb(hex_color):
     try:
         if len(hex_color) == 6:
             return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return 30, 30, 30  # Default fallback
     except Exception:
-        pass
-    return 30, 30, 30
+        return 30, 30, 30
 
 
 def draw_text_with_shadow(draw, pos, text, font, fill, shadow_cfg, anchor=None, spacing=4, scale=1.0):
@@ -68,8 +52,8 @@ def draw_text_with_shadow(draw, pos, text, font, fill, shadow_cfg, anchor=None, 
         if radius > 0:
             try:
                 bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=spacing, anchor=anchor)
-                w = bbox[2] - bbox[0] + radius * 4
-                h = bbox[3] - bbox[1] + radius * 4
+                w = max(1, bbox[2] - bbox[0] + radius * 4)
+                h = max(1, bbox[3] - bbox[1] + radius * 4)
 
                 shadow_img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
                 s_draw = ImageDraw.Draw(shadow_img)
@@ -84,7 +68,8 @@ def draw_text_with_shadow(draw, pos, text, font, fill, shadow_cfg, anchor=None, 
                 paste_y = y + off_y + bbox[1] - radius * 2
 
                 draw._image.paste(shadow_img, (int(paste_x), int(paste_y)), shadow_img)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Shadow render failed, falling back: {e}")
                 draw.multiline_text((x + off_x, y + off_y), text, font=font, fill=s_color, anchor=anchor,
                                     spacing=spacing)
         else:
@@ -102,7 +87,7 @@ def draw_glass_rect(base_img: Image.Image, box: tuple, color_hex: str, alpha: in
             crop = base_img.crop(box).filter(ImageFilter.GaussianBlur(radius))
             base_img.paste(crop, box)
         except Exception:
-            pass
+            pass  # Ignore blur errors (e.g. edge cases)
 
     overlay = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -117,8 +102,8 @@ def render_item_content(overlay_img, draw, item, box, fonts_map, shadow_cfg, sca
     icon_name = item.get("icon", "")
     text_start_x = x + int(15 * scale)
 
-    if icon_name:
-        icon_path = ICON_DIR / icon_name
+    if icon_name and plugin_storage.icon_dir:
+        icon_path = plugin_storage.icon_dir / icon_name
         if icon_path.exists():
             try:
                 with Image.open(icon_path).convert("RGBA") as icon_img:
@@ -128,7 +113,7 @@ def render_item_content(overlay_img, draw, item, box, fonts_map, shadow_cfg, sca
                     else:
                         target_h = int(h * 0.6)
 
-                    aspect_ratio = icon_img.width / icon_img.height
+                    aspect_ratio = icon_img.width / icon_img.height if icon_img.height > 0 else 1
                     target_w = int(target_h * aspect_ratio)
                     icon_resized = icon_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
@@ -239,8 +224,8 @@ def render_one_menu(menu_data: dict) -> Image.Image:
 
     final_h = current_y + s(50)
     if not use_canvas_size:
-        if (bg_name := menu_data.get("background")):
-            bg_path = BG_DIR / bg_name
+        if (bg_name := menu_data.get("background")) and plugin_storage.bg_dir:
+            bg_path = plugin_storage.bg_dir / bg_name
             if bg_path.exists():
                 try:
                     with Image.open(bg_path) as bg_img:
@@ -256,14 +241,16 @@ def render_one_menu(menu_data: dict) -> Image.Image:
     base = Image.new("RGBA", (final_w, final_h), hex_to_rgb(canvas_color_hex))
 
     if bg_name := menu_data.get("background"):
-        if (bg_path := BG_DIR / bg_name).exists():
-            try:
-                with Image.open(bg_path).convert("RGBA") as bg_img:
-                    scale_bg = final_w / bg_img.width
-                    bg_resized = bg_img.resize((final_w, int(bg_img.height * scale_bg)), Image.Resampling.LANCZOS)
-                    base.paste(bg_resized, (0, 0), bg_resized)
-            except Exception as e:
-                logger.error(f"背景图绘制错误: {e}")
+        if plugin_storage.bg_dir:
+            bg_path = plugin_storage.bg_dir / bg_name
+            if bg_path.exists():
+                try:
+                    with Image.open(bg_path).convert("RGBA") as bg_img:
+                        scale_bg = final_w / bg_img.width
+                        bg_resized = bg_img.resize((final_w, int(bg_img.height * scale_bg)), Image.Resampling.LANCZOS)
+                        base.paste(bg_resized, (0, 0), bg_resized)
+                except Exception as e:
+                    logger.error(f"背景图绘制错误: {e}")
 
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
     draw_ov = ImageDraw.Draw(overlay)
@@ -359,8 +346,8 @@ def render_one_menu(menu_data: dict) -> Image.Image:
             wx, wy = s(int(w.get("x", 0))), s(int(w.get("y", 0)))
             if w_type == 'image':
                 content = w.get("content")
-                if content:
-                    img_path = IMG_DIR / content
+                if content and plugin_storage.img_dir:
+                    img_path = plugin_storage.img_dir / content
                     if img_path.exists():
                         ww, wh = s(int(w.get("width", 100))), s(int(w.get("height", 100)))
                         with Image.open(img_path).convert("RGBA") as w_img:
