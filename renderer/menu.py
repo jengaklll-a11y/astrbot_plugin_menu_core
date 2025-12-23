@@ -226,15 +226,33 @@ def render_one_menu(menu_data: dict) -> Image.Image:
         g_title_color = hex_to_rgb(get_style(group, menu_data, 'title_color', 'group_title_color', '#FFFFFF'))
         g_sub_color = hex_to_rgb(get_style(group, menu_data, 'sub_color', 'group_sub_color', '#AAAAAA'))
 
-        draw_ov.text((box_x + 10, g_info["title_y"] + 10), group.get("title", ""), font=g_title_font,
-                     fill=g_title_color)
-        if group.get("subtitle"):
+        title_text = group.get("title", "")
+        subtitle_text = group.get("subtitle", "")
+
+        # --- 修复 START: 副标题垂直对齐 ---
+        # 预先获取文本的像素高度用于对齐
+        try:
+            title_h = g_title_font.getbbox(title_text)[3] - g_title_font.getbbox(title_text)[1] if title_text else 0
+            sub_h = g_sub_font.getbbox(subtitle_text)[3] - g_sub_font.getbbox(subtitle_text)[1] if subtitle_text else 0
+        except Exception:  # 兼容旧版 Pillow
+            title_h = g_title_font.getsize(title_text)[1] if title_text else 0
+            sub_h = g_sub_font.getsize(subtitle_text)[1] if subtitle_text else 0
+
+        title_y_pos = g_info["title_y"] + 10
+        draw_ov.text((box_x + 10, title_y_pos), title_text, font=g_title_font, fill=g_title_color)
+
+        if subtitle_text:
             try:
-                title_w = draw_ov.textlength(group.get("title", ""), font=g_title_font)
+                title_w = draw_ov.textlength(title_text, font=g_title_font)
             except:
-                title_w = g_title_font.getsize(group.get("title", ""))[0]
-            draw_ov.text((box_x + 10 + title_w + 10, g_info["title_y"] + 10), group.get("subtitle"), font=g_sub_font,
+                title_w = g_title_font.getsize(title_text)[0]
+
+            # 计算垂直偏移，使副标题在视觉上与主标题居中对齐
+            y_offset = (title_h - sub_h) / 2
+
+            draw_ov.text((box_x + 10 + title_w + 10, title_y_pos + y_offset), subtitle_text, font=g_sub_font,
                          fill=g_sub_color)
+        # --- 修复 END ---
 
         item_grid_w = (box_w - 40 - (g_info["columns"] - 1) * ITEM_GAP_X) // g_info["columns"]
         for i, item in enumerate(group.get("items", [])):
