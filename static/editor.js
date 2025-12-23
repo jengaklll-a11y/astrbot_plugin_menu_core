@@ -73,7 +73,9 @@ function createNewMenu() {
     const newMenu = {
         id: "m_" + Date.now(), name: "新菜单", enabled: true, title: "标题", groups: [], custom_widgets: [],
         layout_columns: 3, group_bg_color: "#000000", group_bg_alpha: 50, item_bg_color: "#FFFFFF", item_bg_alpha: 20,
-        use_canvas_size: false, canvas_width: 1000, canvas_height: 2000
+        use_canvas_size: false, canvas_width: 1000, canvas_height: 2000,
+        shadow_enabled: false, shadow_color: "#000000", shadow_offset_x: 2, shadow_offset_y: 2, shadow_radius: 2,
+        export_scale: 1.0
     };
     if (!appState.fullConfig.menus) {
         appState.fullConfig.menus = [];
@@ -100,6 +102,9 @@ function updateFormInputs(m) {
     const canvasModeSel = document.getElementById("canvasMode");
     if (canvasModeSel) canvasModeSel.value = m.use_canvas_size ? "true" : "false";
 
+    // 修改：绑定自定义倍率输入框
+    setValue("expScaleInput", m.export_scale || 1.0);
+
     setValue("cvsColorP", m.canvas_color || "#1e1e1e"); setValue("cvsColorT", m.canvas_color || "#1e1e1e");
     renderSelect("bgSelect", appState.assets.backgrounds, m.background, "无背景");
     setValue("bgFit", m.bg_fit_mode || "cover_w");
@@ -108,6 +113,13 @@ function updateFormInputs(m) {
     setValue("iboxColor", m.item_bg_color || "#FFFFFF"); setValue("iboxBlur", m.item_blur_radius || 0); setValue("iboxAlpha", m.item_bg_alpha !== undefined ? m.item_bg_alpha : 20); document.getElementById("ialphaVal").innerText = m.item_bg_alpha !== undefined ? m.item_bg_alpha : 20;
 
     renderSelect("fTitle", appState.assets.fonts, m.title_font); renderSelect("fGTitle", appState.assets.fonts, m.group_title_font); renderSelect("fGSub", appState.assets.fonts, m.group_sub_font); renderSelect("fIName", appState.assets.fonts, m.item_name_font); renderSelect("fIDesc", appState.assets.fonts, m.item_desc_font);
+
+    // 阴影设置回显
+    document.getElementById("shadowEn").checked = !!m.shadow_enabled;
+    setValue("shadowColP", m.shadow_color || "#000000"); setValue("shadowColT", m.shadow_color || "#000000");
+    setValue("shadowX", m.shadow_offset_x !== undefined ? m.shadow_offset_x : 2);
+    setValue("shadowY", m.shadow_offset_y !== undefined ? m.shadow_offset_y : 2);
+    setValue("shadowR", m.shadow_radius !== undefined ? m.shadow_radius : 2);
 
     const map = {'title_color': ['cTitleP', 'cTitleT'], 'subtitle_color': ['cSubP', 'cSubT'], 'group_title_color': ['cGTitleP', 'cGTitleT'], 'group_sub_color': ['cGSubP', 'cGSubT'], 'item_name_color': ['cItemNameP', 'cItemNameT'], 'item_desc_color': ['cItemDescP', 'cItemDescT']};
     for (const [k, ids] of Object.entries(map)) { const val = m[k] || "#FFFFFF"; ids.forEach(id => { if (document.getElementById(id)) document.getElementById(id).value = val; }); }
@@ -121,39 +133,71 @@ function renderCanvas(m) {
     cvs.style.pointerEvents = "auto";
 
     const useFixedSize = String(m.use_canvas_size) === 'true';
-    const fixedW = parseInt(m.canvas_width) || 1000;
-    const fixedH = parseInt(m.canvas_height) || 2000;
-    const baseWidth = 1000;
+    const targetW = parseInt(m.canvas_width) || 1000;
+    const targetH = parseInt(m.canvas_height) || 2000;
 
-    cvs.style.transform = '';
-    cvs.style.height = 'auto';
-    cvsWrapper.style.height = 'auto';
+    const editorWidth = cvsWrapper.parentElement.clientWidth - 120;
+    let scale = 1;
+    if (editorWidth < targetW) {
+        scale = editorWidth / targetW;
+    }
+    viewState.scale = scale;
 
-    cvs.style.width = baseWidth + "px";
+    cvsWrapper.style.width = targetW + "px";
+    cvs.style.width = targetW + "px";
+
+    cvs.style.transform = `scale(${scale})`;
+    cvs.style.transformOrigin = "top left";
+    cvs.style.minHeight = "800px";
+
+    if (m.background && !useFixedSize) {
+        const tmpImg = new Image();
+        tmpImg.src = `/raw_assets/backgrounds/${m.background}`;
+        tmpImg.onload = () => {
+             const ratio = tmpImg.height / tmpImg.width;
+             const bgFitHeight = targetW * ratio;
+             if (cvs.offsetHeight < bgFitHeight) {
+                 cvs.style.minHeight = bgFitHeight + "px";
+                 if (!useFixedSize) {
+                     cvsWrapper.style.height = (cvs.offsetHeight * scale) + "px";
+                 }
+             }
+        };
+    }
 
     if (useFixedSize) {
-        const scale = fixedW / baseWidth;
-        viewState.scale = scale;
-        cvsWrapper.style.width = fixedW + "px";
-        cvsWrapper.style.height = fixedH + "px";
-        cvs.style.transform = `scale(${scale})`;
-        cvs.style.height = (fixedH / scale) + "px";
+        cvs.style.height = targetH + "px";
+        cvs.style.minHeight = targetH + "px";
+        cvsWrapper.style.width = (targetW * scale) + "px";
+        cvsWrapper.style.height = (targetH * scale) + "px";
     } else {
-        viewState.scale = 1;
-        cvsWrapper.style.width = baseWidth + "px";
         cvs.style.height = "auto";
-        cvs.style.minHeight = "800px";
+        cvsWrapper.style.width = (targetW * scale) + "px";
+        cvsWrapper.style.height = "auto";
     }
 
     cvs.style.backgroundColor = m.canvas_color || "#1e1e1e";
     cvs.style.backgroundImage = m.background ? `url('/raw_assets/backgrounds/${m.background}')` : "none";
-    if (m.background) { cvs.style.backgroundRepeat = "no-repeat"; cvs.style.backgroundSize = m.bg_fit_mode === "custom" ? `${m.bg_custom_width}px ${m.bg_custom_height}px` : "100% auto"; cvs.style.backgroundPosition = "top center"; }
+    if (m.background) {
+        cvs.style.backgroundRepeat = "no-repeat";
+        cvs.style.backgroundSize = m.bg_fit_mode === "custom" ? `${m.bg_custom_width}px ${m.bg_custom_height}px` : "100% auto";
+        cvs.style.backgroundPosition = "top center";
+    }
+
+    let shadowCss = 'none';
+    if (m.shadow_enabled) {
+        const sx = m.shadow_offset_x || 2;
+        const sy = m.shadow_offset_y || 2;
+        const sr = m.shadow_radius || 2;
+        const sc = m.shadow_color || '#000000';
+        shadowCss = `${sx}px ${sy}px ${sr}px ${sc}`;
+    }
 
     const gfTitle = cssFont(m.title_font);
     const titleAlign = m.title_align || 'center';
 
     let html = `
-        <div class="header-area title-clickable" style="text-align:${titleAlign}"
+        <div class="header-area title-clickable" style="text-align:${titleAlign}; text-shadow:${shadowCss};"
              onclick="openContextEditor('title')" title="点击修改标题">
             <div style="color:${m.title_color || '#FFFFFF'}; font-family:'${gfTitle}'; font-size:${m.title_size || 60}px">${m.title || ''}</div>
             <div style="color:${m.subtitle_color || '#DDDDDD'}; font-family:'${gfTitle}'; font-size:${(m.title_size || 60) * 0.5}px">${m.sub_title || ''}</div>
@@ -184,7 +228,7 @@ function renderCanvas(m) {
 
         html += `
         <div class="group-wrapper" style="margin-bottom:30px;">
-            <div class="group-header-wrap" onclick="openContextEditor('group', ${gIdx}, -1)" style="padding:0 0 10px 10px; cursor:pointer;">
+            <div class="group-header-wrap" onclick="openContextEditor('group', ${gIdx}, -1)" style="padding:0 0 10px 10px; cursor:pointer; text-shadow:${shadowCss}; display:flex; align-items:center;">
                 <span style="color:${gTitleColor}; font-family:'${gTitleFont}'; font-size:${gTitleSize}px">${g.title}</span>
                 ${g.subtitle ? `<span style="color:${gSubColor}; font-family:'${gSubFont}'; font-size:${gSubSize}px; margin-left:10px;">${g.subtitle}</span>` : ''}
             </div>
@@ -202,7 +246,7 @@ function renderCanvas(m) {
             const iBgAlpha = item.bg_alpha !== undefined ? item.bg_alpha : (m.item_bg_alpha !== undefined ? m.item_bg_alpha : 20);
             const iRgba = hexToRgba(iBgColor, iBgAlpha / 255);
             const iBlur = m.item_blur_radius > 0 ? `backdrop-filter: blur(${m.item_blur_radius}px);` : '';
-            // --- 核心修复 1: 预览图标大小 ---
+
             let iconHtml = '';
             if (item.icon) {
                 const iconHeight = getStyle(item, 'icon_size', null);
@@ -210,10 +254,9 @@ function renderCanvas(m) {
                 iconHtml = `<img src="/raw_assets/icons/${item.icon}" class="item-icon" ${iconStyle}>`;
             }
 
-            // --- 核心修复 2: 预览换行 (white-space: pre-wrap) ---
             const descText = (item.desc || '').replace(/</g, "&lt;").replace(/>/g, "&gt;");
             const textContentHtml = `
-                <div class="item-text-content">
+                <div class="item-text-content" style="text-shadow:${shadowCss};">
                     <div style="color:${iNameColor}; font-family:'${iNameFont}'; font-size:${iNameSize}px;">${item.name || ''}</div>
                     <div style="color:${iDescColor}; font-family:'${iDescFont}'; font-size:${iDescSize}px; margin-top: 5px; white-space: pre-wrap; word-break: break-all;">${descText}</div>
                 </div>`;
@@ -231,7 +274,7 @@ function renderCanvas(m) {
                 </div>`;
             } else {
                 html += `
-                <div class="grid-item" style="background-color:${iRgba}; ${iBlur};" onclick="openContextEditor('item', ${gIdx}, ${iIdx})">
+                <div class="grid-item" style="background-color:${iRgba}; ${iBlur}; height:90px;" onclick="openContextEditor('item', ${gIdx}, ${iIdx})">
                     ${iconHtml} ${textContentHtml}
                 </div>`;
             }
@@ -243,10 +286,16 @@ function renderCanvas(m) {
         html += `</div></div></div>`;
     });
     cvs.innerHTML = html;
-    renderWidgets(cvs, m);
+    renderWidgets(cvs, m, shadowCss);
+
+    if (!useFixedSize) {
+        requestAnimationFrame(() => {
+             cvsWrapper.style.height = (cvs.offsetHeight * scale) + "px";
+        });
+    }
 }
 
-function renderWidgets(container, m) {
+function renderWidgets(container, m, shadowCss) {
     (m.custom_widgets || []).forEach((wid, idx) => {
         const el = document.createElement("div"); el.className = "draggable-widget";
         if (selectedWidgetIdx === idx) el.classList.add("selected");
@@ -258,7 +307,10 @@ function renderWidgets(container, m) {
             el.style.width = (parseInt(wid.width)||100) + "px"; el.style.height = (parseInt(wid.height)||100) + "px";
         } else {
             el.innerText = wid.text || "Text";
-            el.style.fontSize = (parseInt(wid.size)||40) + "px"; el.style.color = wid.color || "#FFF";
+            el.style.fontSize = (parseInt(wid.size)||40) + "px";
+            el.style.color = wid.color || "#FFF";
+            el.style.fontFamily = cssFont(wid.font);
+            el.style.textShadow = shadowCss;
         }
         el.onmousedown = (e) => initWidgetDrag(e, idx, 'move');
         const handle = document.createElement("div"); handle.className = "resize-handle";
@@ -386,12 +438,10 @@ function generatePropForm(type, obj, gIdx, iIdx) {
         html += `<div class="form-row"><label>背景透明度 (0-255)</label><input type="range" max="255" value="${obj.bg_alpha!==undefined?obj.bg_alpha:''}" oninput="updateProp('${type}', ${gIdx}, ${iIdx}, 'bg_alpha', this.value)"></div>`;
     } else {
         html += input("功能名称", "name", obj.name);
-        // --- 核心修复 2: 使用 textarea 替换 input ---
         html += textarea("功能描述", "desc", obj.desc);
         const icons = (appState.assets.icons || []).map(i => `<option value="${i}" ${i===obj.icon?'selected':''}>${i}</option>`).join('');
         html += `<div class="form-row"><label>图标</label><select onchange="updateProp('${type}', ${gIdx}, ${iIdx}, 'icon', this.value)"><option value="">无</option>${icons}</select></div>`;
 
-        // --- 核心修复 1: 增加图标高度输入框 ---
         if (obj.icon) {
             html += input("图标高度 (px)", "icon_size", obj.icon_size, "number", "placeholder='默认自适应'");
         }
@@ -520,7 +570,6 @@ function handleGlobalMouseUp(e) {
 }
 
 function handleKeyDown(e) {
-    // 允许在输入框和文本域中使用退格键
     if ((e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && e.key === 'Backspace') return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
 
@@ -627,6 +676,7 @@ function updateWidgetEditor(m) {
         setValue("widText", w.text);
         setValue("widSize", w.size);
         setValue("widColor", w.color);
+        renderSelect("widFontSelect", appState.assets.fonts, w.font || "", "默认字体");
     }
 }
 
@@ -641,10 +691,13 @@ function deleteWidget() {
 
 function updateMenuMeta(key, val) {
     const m = getCurrentMenu();
-    if(['layout_columns', 'canvas_width', 'canvas_height', 'group_blur_radius', 'item_blur_radius', 'group_bg_alpha', 'item_bg_alpha'].includes(key)) {
+    // 添加阴影相关字段到int转换列表
+    if(['layout_columns', 'canvas_width', 'canvas_height', 'group_blur_radius', 'item_blur_radius', 'group_bg_alpha', 'item_bg_alpha', 'shadow_offset_x', 'shadow_offset_y', 'shadow_radius'].includes(key)) {
         m[key] = parseInt(val);
-    } else if (key === 'use_canvas_size') {
-        m[key] = val === 'true';
+    } else if (key === 'use_canvas_size' || key === 'shadow_enabled') {
+        m[key] = val === 'true' || val === true; // 修正bool转换
+    } else if (key === 'export_scale') {
+        m[key] = parseFloat(val);
     } else {
         m[key] = val;
     }

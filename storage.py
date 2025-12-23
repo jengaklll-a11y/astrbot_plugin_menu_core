@@ -19,18 +19,15 @@ if OLD_DATA_DIR.exists() and not DATA_DIR.exists():
         pass
 
 ASSETS_DIR = DATA_DIR / "assets"
-# --- FIX START: 定义缺失的路径变量 ---
 BG_DIR = ASSETS_DIR / "backgrounds"
 ICON_DIR = ASSETS_DIR / "icons"
 IMG_DIR = ASSETS_DIR / "widgets"
-# --- FIX END ---
 MENU_FILE = DATA_DIR / "menu.json"
 FONTS_DIR = BASE_DIR / "fonts"
 
 
 def init_directories():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    # 使用已定义的变量创建目录，保证一致性
     BG_DIR.mkdir(parents=True, exist_ok=True)
     ICON_DIR.mkdir(parents=True, exist_ok=True)
     IMG_DIR.mkdir(parents=True, exist_ok=True)
@@ -57,6 +54,9 @@ def create_default_menu(name="默认菜单"):
         "canvas_height": 2000,
         "canvas_color": "#1e1e1e",
         "canvas_padding": 40,
+
+        # --- 新增: 导出缩放倍率 ---
+        "export_scale": 1.0,
 
         # --- 背景 ---
         "background": "",
@@ -93,6 +93,13 @@ def create_default_menu(name="默认菜单"):
         "item_name_font": "title.ttf",
         "item_desc_font": "text.ttf",
 
+        # --- 阴影设置 ---
+        "shadow_enabled": False,
+        "shadow_color": "#000000",
+        "shadow_offset_x": 2,
+        "shadow_offset_y": 2,
+        "shadow_radius": 2,
+
         # 字号
         "title_size": 60,
         "group_title_size": 30,
@@ -106,7 +113,7 @@ def create_default_menu(name="默认菜单"):
             {
                 "title": "常用指令",
                 "subtitle": "Basic",
-                "free_mode": False,  # 分组独立自由模式开关
+                "free_mode": False,
                 "min_height": 0,
                 "items": [
                     {"name": "帮助", "desc": "查看说明", "icon": "", "x": 20, "y": 60, "w": 280, "h": 100},
@@ -118,7 +125,7 @@ def create_default_menu(name="默认菜单"):
 
 
 DEFAULT_ROOT = {
-    "version": 7,
+    "version": 8,  # 升级版本号
     "menus": [create_default_menu()]
 }
 
@@ -131,15 +138,20 @@ def load_config() -> Dict[str, Any]:
     try:
         data = json.loads(MENU_FILE.read_text(encoding="utf-8"))
 
-        # 简单迁移逻辑
         if "menus" in data:
             for m in data["menus"]:
-                # 移除全局 free_edit_mode，确保每个 group 有 free_mode
                 if "free_edit_mode" in m: del m["free_edit_mode"]
-
                 if "group_bg_color" not in m: m["group_bg_color"] = m.get("box_bg_color", "#000000")
                 if "item_bg_color" not in m: m["item_bg_color"] = "#FFFFFF"
                 if "item_bg_alpha" not in m: m["item_bg_alpha"] = 20
+
+                # 补全字段
+                if "shadow_enabled" not in m: m["shadow_enabled"] = False
+                if "shadow_color" not in m: m["shadow_color"] = "#000000"
+                if "shadow_offset_x" not in m: m["shadow_offset_x"] = 2
+                if "shadow_offset_y" not in m: m["shadow_offset_y"] = 2
+                if "shadow_radius" not in m: m["shadow_radius"] = 2
+                if "export_scale" not in m: m["export_scale"] = 1.0
 
                 for g in m.get("groups", []):
                     if "free_mode" not in g: g["free_mode"] = False
@@ -155,7 +167,7 @@ def load_config() -> Dict[str, Any]:
             def_m = create_default_menu()
             for k, v in def_m.items():
                 if k not in old_menu: old_menu[k] = v
-            new_root = {"version": 7, "menus": [old_menu]}
+            new_root = {"version": 8, "menus": [old_menu]}
             save_config(new_root)
             return new_root
 
