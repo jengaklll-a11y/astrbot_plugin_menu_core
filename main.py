@@ -3,18 +3,23 @@ import logging
 import socket
 import json
 import multiprocessing
+import traceback
 from pathlib import Path
+
+# AstrBot API
 from astrbot.api.star import Context, Star, register
 from astrbot.api import event
+from astrbot.api.event import filter
 
+# 尝试导入依赖
 try:
     from .web_server import run_server
-    from .storage import load_config
+    from .storage import load_config, DATA_DIR
     from .renderer.menu import render_one_menu
 
     HAS_DEPS = True
 except ImportError as e:
-    print(f"❌ [CustomMenu] 依赖缺失: {e}")
+    logging.getLogger("astrbot_plugin_custom_menu").error(f"❌ 依赖缺失: {e}")
     HAS_DEPS = False
 
 
@@ -32,8 +37,8 @@ def get_local_ip():
 @register(
     "astrbot_plugin_custom_menu",
     author="shskjw",
-    desc="web可视化菜单编辑器(多菜单版)",
-    version="2.0.0"
+    desc="Web可视化菜单编辑器(支持LLM智能回复)",
+    version="1.5.2"
 )
 class CustomMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
@@ -45,54 +50,85 @@ class CustomMenuPlugin(Star):
 
     async def on_load(self):
         if not HAS_DEPS:
-            self.logger.error("❌ 缺少依赖")
+            self.logger.error("❌ 缺少关键依赖，请确保 storage.py 和 renderer/menu.py 存在。")
         else:
-            self.logger.info("✅ 菜单插件加载完毕")
+            self.logger.info("✅ 菜单插件加载完毕 (LLM Tool: show_graphical_menu 已注册)")
 
     async def on_unload(self):
         if self.web_process and self.web_process.is_alive():
             self.web_process.terminate()
+            self.logger.info("后台 Web 服务已关闭")
 
     def is_admin(self, event: event.AstrMessageEvent) -> bool:
         if not self.admins_id: return True
         sender_id = str(event.get_sender_id())
         return sender_id in [str(uid) for uid in self.admins_id]
 
-    @event.filter.command("菜单")
-    async def menu(self, event: event.AstrMessageEvent):
+    # --- 核心方法：生成图片 ---
+    async def _generate_menu_chain(self, event_obj):
+        """
+        修改为异步生成器：逐个 yield 结果，提高发送成功率
+        """
         if not HAS_DEPS:
-            yield event.plain_result("❌ 插件依赖缺失")
+            yield event_obj.plain_result("❌ 插件文件不完整，无法渲染。")
             return
 
-        # 加载最新配置
-        root_config = load_config()
-        menus = root_config.get("menus", [])
+        try:
+            self.logger.info("正在渲染菜单...")
+            root_config = load_config()
+            menus = root_config.get("menus", [])
+            active_menus = [m for m in menus if m.get("enabled", True)]
 
-        # 筛选启用的菜单
-        active_menus = [m for m in menus if m.get("enabled", True)]
+            if not active_menus:
+                yield event_obj.plain_result("⚠️ 当前没有启用的菜单，请在后台开启。")
+                return
 
-        if not active_menus:
-            yield event.plain_result("⚠️ 当前没有启用的菜单")
-            return
+            for menu_data in active_menus:
+                self.logger.info(f"正在渲染菜单: {menu_data.get('name')}")
 
-        chain = []
-        for menu_data in active_menus:
-            try:
-                # 渲染图片
-                img = await asyncio.to_thread(render_one_menu, menu_data)
+                try:
+                    img = await asyncio.to_thread(render_one_menu, menu_data)
+                except Exception as e:
+                    self.logger.error(f"渲染失败: {traceback.format_exc()}")
+                    yield event_obj.plain_result(f"❌ 渲染错误 [{menu_data.get('name')}]: {e}")
+                    continue
 
-                # 保存临时文件发送 (或者直接转 base64，这里用临时文件稳妥)
-                temp_path = Path(__file__).parent / "data" / f"temp_{menu_data.get('id')}.png"
+                # 使用绝对路径，确保不同平台适配器能读取
+                temp_filename = f"temp_render_{menu_data.get('id')}.png"
+                temp_path = (DATA_DIR / temp_filename).absolute()
                 img.save(temp_path)
-                chain.append(event.image_result(str(temp_path)))
-            except Exception as e:
-                self.logger.error(f"渲染菜单 {menu_data.get('name')} 失败: {e}")
-                chain.append(event.plain_result(f"❌ 渲染错误: {e}"))
 
-        # 一次性发送所有图片
-        yield chain
+                self.logger.info(f"渲染完成，发送图片: {temp_path}")
+                yield event_obj.image_result(str(temp_path))
 
-    @event.filter.command("开启后台")
+        except Exception as e:
+            self.logger.error(f"生成菜单流程异常: {e}")
+            yield event_obj.plain_result(f"❌ 系统内部错误: {e}")
+
+    # --- 触发方式 1: 传统指令 "菜单" ---
+    @filter.command("菜单")
+    async def menu_cmd(self, event: event.AstrMessageEvent):
+        """发送功能菜单图片"""
+        async for result in self._generate_menu_chain(event):
+            yield result
+
+    # --- 触发方式 2: LLM 智能调用 ---
+    @filter.llm_tool(name="show_graphical_menu")
+    async def show_menu_tool(self, event: event.AstrMessageEvent):
+        """
+        当用户询问你是谁、有什么功能、查看菜单、查看帮助、指令列表时，调用此工具。
+        此工具会直接发送一张包含所有功能的图形化菜单图片给用户。
+        """
+        self.logger.info(f"🧠 LLM 触发了菜单工具 (User: {event.get_sender_name()})")
+
+        async for result in self._generate_menu_chain(event):
+            yield result
+
+        # 异步生成器不能 return 字符串，必须 yield 纯文本结果供 LLM 参考
+        yield event_obj.plain_result("已发送功能菜单图片。")
+
+    # --- 后台管理指令 ---
+    @filter.command("开启后台")
     async def start_web_cmd(self, event: event.AstrMessageEvent):
         if not self.is_admin(event):
             yield event.plain_result("❌ 权限不足")
@@ -123,9 +159,9 @@ class CustomMenuPlugin(Star):
             self.web_process.start()
 
             try:
-                msg = await asyncio.to_thread(status_queue.get, True, 5)
+                msg = await asyncio.to_thread(status_queue.get, True, 10)
             except:
-                msg = "SUCCESS" if self.web_process.is_alive() else "TIMEOUT"
+                msg = "TIMEOUT"
 
             if msg == "SUCCESS":
                 host_conf = self.cfg.get("web_host", "0.0.0.0")
@@ -134,13 +170,14 @@ class CustomMenuPlugin(Star):
                 show_ip = "127.0.0.1" if host_conf == "127.0.0.1" else get_local_ip()
                 yield event.plain_result(f"✅ 启动成功！\n地址: http://{show_ip}:{port}/\n密钥: {token}")
             else:
-                yield event.plain_result(f"❌ 启动报错: {msg}")
+                if self.web_process.is_alive(): self.web_process.terminate()
+                yield event.plain_result(f"❌ 启动失败: {msg}")
 
         except Exception as e:
             self.logger.error(f"启动异常: {e}")
             yield event.plain_result(f"❌ 启动异常: {e}")
 
-    @event.filter.command("关闭后台")
+    @filter.command("关闭后台")
     async def stop_web_cmd(self, event: event.AstrMessageEvent):
         if not self.is_admin(event): return
         if not self.web_process or not self.web_process.is_alive():

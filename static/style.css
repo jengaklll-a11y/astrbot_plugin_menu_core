@@ -1,5 +1,4 @@
 /* ================= 字体定义 ================= */
-/* 这里的 src 仅作兜底，实际会在 editor.js 中动态注入 */
 @font-face { font-family: 'MiaoTitle'; src: url('/fonts/title.ttf'); font-display: swap; }
 @font-face { font-family: 'MiaoText'; src: url('/fonts/text.ttf'); font-display: swap; }
 
@@ -23,6 +22,7 @@ body {
     margin: 0; background-color: var(--bg-app); color: var(--text-main);
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
     display: flex; height: 100vh; overflow: hidden; font-size: 14px;
+    user-select: none; /* 全局禁止选中文本，提升拖拽体验 */
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -36,12 +36,9 @@ body {
     box-shadow: 4px 0 15px rgba(0,0,0,0.3);
 }
 
-/* 新增：顶部多菜单管理区域 */
 .sidebar-header-top {
-    flex: 0 0 auto;
-    padding: 12px 20px;
-    background-color: #1a1a1a;
-    border-bottom: 1px solid #2a2a2a;
+    flex: 0 0 auto; padding: 12px 20px;
+    background-color: #1a1a1a; border-bottom: 1px solid #2a2a2a;
     z-index: 1002;
 }
 .sidebar-header-top label {
@@ -49,7 +46,6 @@ body {
     margin-bottom: 6px; font-weight: 600; text-transform: uppercase;
 }
 
-/* 通用头部 */
 .sidebar-header {
     flex: 0 0 auto; padding: 15px 20px;
     background-color: #252526; border-bottom: 1px solid var(--border-color);
@@ -74,11 +70,10 @@ body {
     border-bottom: 1px solid #333; padding-bottom: 8px;
 }
 
-/* ================= 表单控件 (双列布局) ================= */
+/* ================= 表单控件 ================= */
 .form-row { margin-bottom: 12px; position: relative; }
 .form-row label { display: block; color: var(--text-sub); margin-bottom: 6px; font-size: 12px; }
 
-/* 双列 Grid */
 .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 
 input[type="text"], input[type="number"], select {
@@ -87,6 +82,7 @@ input[type="text"], input[type="number"], select {
     border: 1px solid #444 !important;
     color: #fff !important; border-radius: 4px;
     font-size: 13px; appearance: none;
+    user-select: auto; /* 输入框允许选中 */
 }
 input:focus, select:focus { border-color: var(--accent) !important; background-color: #333 !important; }
 
@@ -149,91 +145,174 @@ input[type="color"] {
     width: 1000px;
     min-height: 1200px;
     background-color: #222;
-    /* 关键：让长图完整显示，不被截断 */
     background-size: 100% auto;
     background-repeat: no-repeat;
     background-position: top center;
-
     position: relative;
     box-shadow: 0 0 60px rgba(0,0,0,0.8);
     padding: 40px;
     transform-origin: top center;
     z-index: 2;
     border-radius: 4px;
+    pointer-events: auto; /* 确保画布可点击 */
 }
 
-/* ================= 拖拽组件 ================= */
+/* ================= 拖拽组件 (Widgets) ================= */
 .draggable-widget {
     position: absolute; cursor: grab; user-select: none;
-    border: 1px dashed transparent; padding: 4px 8px; z-index: 500;
+    border: 1px dashed transparent; padding: 4px 8px;
+    z-index: 500; /* 最高层级 */
     white-space: nowrap; line-height: 1.2;
     transition: border 0.1s;
+    pointer-events: auto;
 }
 .draggable-widget:hover { border: 1px dashed rgba(255,255,255,0.6); background: rgba(255,255,255,0.05); }
 .draggable-widget.selected { border: 1px solid var(--accent); background: rgba(14, 99, 156, 0.2); cursor: grabbing; }
 
+/* 通用拖拽手柄 */
 .resize-handle {
-    display: none; position: absolute; right: -5px; bottom: -5px;
-    width: 12px; height: 12px; background: var(--accent);
+    display: none; position: absolute; right: -6px; bottom: -6px;
+    width: 14px; height: 14px; background: var(--accent);
     border: 2px solid #fff; cursor: se-resize; border-radius: 50%;
-    z-index: 501; box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    z-index: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    pointer-events: auto;
 }
 .draggable-widget.selected .resize-handle { display: block; }
+.free-item.selected .resize-handle { display: block; }
 
-/* ================= 预览元素 (Miao UI) ================= */
-.header-area { margin-bottom: 50px; margin-top: 20px; width: 100%; position: relative; pointer-events: none; }
-.header-area * { pointer-events: auto; }
+/* ================= Miao UI 预览元素 ================= */
 
-.main-title {
-    font-family: 'MiaoTitle'; font-weight: bold; margin: 0 0 10px 0;
-    text-shadow: 0 4px 10px rgba(0,0,0,0.5); cursor: pointer; line-height: 1.2;
-    transition: opacity 0.2s;
+/* 标题区域 */
+.header-area {
+    margin-bottom: 50px; margin-top: 20px; width: 100%; position: relative;
+    z-index: 5; /* 降低层级，防止遮挡下方内容 */
 }
-.main-title:hover { opacity: 0.8; }
-.sub-title { font-family: 'MiaoTitle'; opacity: 0.8; margin: 0; cursor: pointer; }
-
-.group-box { margin-bottom: 30px; }
-.group-header {
-    font-family: 'MiaoText'; font-size: 28px; margin-bottom: 15px; padding-left: 12px;
-    border-left: 5px solid rgba(255,255,255,0.5); cursor: pointer; position: relative; z-index: 50;
+.title-clickable {
+    border: 1px dashed transparent;
+    border-radius: 8px;
+    padding: 10px;
     transition: all 0.2s;
+    cursor: pointer;
 }
-.group-header:hover { padding-left: 15px; border-left-color: var(--accent); }
+.title-clickable:hover {
+    border-color: rgba(255,255,255,0.3);
+    background-color: rgba(255,255,255,0.05);
+}
 
-/* 修改：移除了固定的背景色，改为由 JS 控制 inline-style */
+/* 分组 Wrapper */
+.group-wrapper {
+    margin-bottom: 30px;
+    position: relative;
+    z-index: 10; /* 低于 Free Item */
+}
+
+/* 分组头部 */
+.group-header-wrap {
+    transition: all 0.2s;
+    margin-bottom: 5px;
+}
+.group-header-wrap:hover {
+    transform: translateX(5px);
+}
+
+/* 分组内容盒子 */
+.group-content-box {
+    border-radius: 15px;
+    position: relative; /* 确保内部绝对定位生效 */
+}
+
+/* 分组内容容器 */
 .grid-container {
     display: grid;
     gap: 15px;
     padding: 20px;
-    border-radius: 16px;
-    /* 背景色和模糊效果现在通过 style 属性动态设置 */
+}
+.free-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    min-height: 100px;
 }
 
+/* 自动模式 Item */
 .grid-item {
-    display: flex; align-items: center; padding: 15px;
-    background: rgba(255,255,255,0.08); border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.05); cursor: pointer;
-    transition: transform 0.2s, background 0.2s; min-height: 80px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.05);
+    cursor: pointer;
+    transition: transform 0.2s;
+    min-height: 80px;
+    text-align: center;
+    overflow: hidden;
 }
-.grid-item:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.3); transform: translateY(-2px); }
-.grid-item.no-icon { justify-content: center; text-align: center; } .grid-item.no-icon img { display: none; }
-.grid-item img { width: 50px; height: 50px; margin-right: 15px; object-fit: contain; }
-.item-text { flex: 1; overflow: hidden; }
-.item-text h4 { margin: 0; font-family: 'MiaoTitle'; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-text p { margin: 5px 0 0 0; font-size: 16px; opacity: 0.7; font-family: 'MiaoText'; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid-item:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.3);
+}
 
-/* ================= 分组列表与弹窗 ================= */
+/* 自由模式 Item */
+.free-item {
+    position: absolute;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    cursor: move;
+    z-index: 50; /* 在 Group 内部 */
+    overflow: hidden;
+    text-align: center;
+    user-select: none;
+    pointer-events: auto;
+    touch-action: none;
+}
+.free-item:hover {
+    border-color: rgba(255,255,255,0.5);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    z-index: 51;
+}
+.free-item.selected {
+    border: 1px solid var(--accent);
+    z-index: 100;
+    box-shadow: 0 0 0 2px rgba(14, 99, 156, 0.3);
+}
+
+/* ================= 侧边栏列表 ================= */
 .group-list { margin-top: 10px; }
 .group-item {
     display: flex; justify-content: space-between; align-items: center;
     background-color: #333; padding: 12px; margin-bottom: 8px;
     border-radius: 6px; border: 1px solid #444; cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s; border-left: 3px solid transparent;
 }
 .group-item:hover { background-color: #3a3a3a; border-color: #666; transform: translateX(2px); }
 .group-actions { display: flex; align-items: center; gap: 6px; }
 
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.8); z-index: 2000; display: none; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
-.modal { background-color: #252526; width: 450px; padding: 30px; border-radius: 12px; border: 1px solid #555; box-shadow: 0 20px 60px #000; }
-.modal h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 15px; color: #fff; }
-.tip-text { font-size: 12px; color: #aaa; margin-bottom: 10px; font-style: italic; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; }
+/* ================= 弹窗 ================= */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0,0,0,0.8); z-index: 2000;
+    display: none; justify-content: center; align-items: center;
+    backdrop-filter: blur(4px);
+}
+.modal {
+    background-color: #252526; width: 450px; padding: 30px;
+    border-radius: 12px; border: 1px solid #555;
+    box-shadow: 0 20px 60px #000;
+}
+.modal h3 {
+    margin-top: 0; border-bottom: 1px solid #444;
+    padding-bottom: 15px; color: #fff;
+}
+
+/* 弹窗中的开关行 */
+.toggle-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 15px;
+    background: rgba(14, 99, 156, 0.2);
+    padding: 10px 15px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+}
+.toggle-row input[type="checkbox"] {
+    width: 20px; height: 20px; cursor: pointer;
+}
