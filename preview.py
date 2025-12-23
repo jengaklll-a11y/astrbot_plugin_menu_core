@@ -6,10 +6,10 @@ from . import storage
 
 def get_preview_file():
     """Dynamically get preview file path ensuring storage is initialized"""
-    if storage.DATA_DIR is None:
-        # Fallback if accessed before main init (unlikely but safe)
-        storage.setup_paths()
-    return storage.DATA_DIR / "preview.png"
+    if storage.plugin_storage.data_dir is None:
+        storage.plugin_storage.init_paths()
+
+    return storage.plugin_storage.data_dir / "preview.png"
 
 
 def _rebuild_preview_sync():
@@ -17,16 +17,16 @@ def _rebuild_preview_sync():
     Synchronous implementation of preview generation.
     Handles CPU-intensive rendering and File I/O.
     """
-    from .storage import load_config
-
     try:
-        config = load_config()
+        # Fix: Use singleton method to load config
+        config = storage.plugin_storage.load_config()
         menus = config.get("menus", [])
         if not menus:
             logger.warning("No menus available for preview.")
             return
 
         # Render the first menu
+        # render_one_menu takes a dict (menu_data)
         img = render_one_menu(menus[0])
 
         target_file = get_preview_file()
