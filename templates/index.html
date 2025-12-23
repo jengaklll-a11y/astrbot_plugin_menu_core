@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>菜单编辑器 Pro v1.2 (布局修复版)</title>
-    <link rel="stylesheet" href="/static/style.css?v=1.2">
+    <link rel="stylesheet" href="/static/style.css?v=1.3">
 </head>
 <body>
 
@@ -153,9 +153,13 @@
 </div>
 
 <div class="workspace">
-    <div id="canvas" class="canvas"></div>
+    <!-- --- 修复 START: 增加画布包裹层 --- -->
+    <div id="canvas-wrapper" class="canvas-wrapper">
+        <div id="canvas" class="canvas"></div>
+    </div>
+    <!-- --- 修复 END --- -->
 </div>
 
-<script src="/static/editor.js?v=1.2"></script>
+<script src="/static/editor.js?v=1.3"></script>
 </body>
 </html>
