@@ -37,11 +37,12 @@ async def get_local_ip():
     "astrbot_plugin_custom_menu",
     author="shskjw",
     desc="Web可视化菜单编辑器(支持LLM智能回复)",
-    version="1.5.4"
+    version="1.5.5"
 )
 class CustomMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
-        super().__init__(context, config)
+        # Fix: Star class init usually takes only context
+        super().__init__(context)
         self.cfg = config
         self.web_process = None
         self.log_queue = None
@@ -69,9 +70,6 @@ class CustomMenuPlugin(Star):
         if self.web_process and self.web_process.is_alive():
             self.web_process.terminate()
             logger.info("后台 Web 服务已关闭")
-        # Stop log consumer is handled implicitly as main process shuts down,
-        # but cleaner to have a stop flag if this was a long running thread in plugin.
-        # Since plugins unload usually ends the process or reloading, queue GC is fine.
 
     def is_admin(self, event: event.AstrMessageEvent) -> bool:
         if not self.admins_id: return True
@@ -103,7 +101,10 @@ class CustomMenuPlugin(Star):
             from .renderer.menu import render_one_menu
 
             logger.info("正在渲染菜单...")
-            root_config = plugin_storage.load_config()
+
+            # Fix: Run blocking file I/O in a separate thread
+            root_config = await asyncio.to_thread(plugin_storage.load_config)
+
             menus = root_config.get("menus", [])
             active_menus = [m for m in menus if m.get("enabled", True)]
 
@@ -123,7 +124,10 @@ class CustomMenuPlugin(Star):
 
                 temp_filename = f"temp_render_{menu_data.get('id')}.png"
                 temp_path = (plugin_storage.data_dir / temp_filename).absolute()
-                img.save(temp_path)
+                # Saving image is also I/O bound, strictly should be threaded,
+                # but standard practice often tolerates small writes.
+                # For safety with large images, we wrap it too.
+                await asyncio.to_thread(img.save, temp_path)
 
                 logger.info(f"渲染完成，发送图片: {temp_path}")
                 yield event_obj.image_result(str(temp_path))
@@ -134,11 +138,15 @@ class CustomMenuPlugin(Star):
 
     @filter.command("菜单")
     async def menu_cmd(self, event: event.AstrMessageEvent):
+        """发送功能菜单图片"""
         async for result in self._generate_menu_chain(event):
             yield result
 
     @filter.llm_tool(name="show_graphical_menu")
     async def show_menu_tool(self, event: event.AstrMessageEvent):
+        """
+        当用户询问你是谁、有什么功能、查看菜单、查看帮助、指令列表时，调用此工具。
+        """
         logger.info(f"🧠 LLM 触发了菜单工具 (User: {event.get_sender_name()})")
         async for result in self._generate_menu_chain(event):
             yield result
