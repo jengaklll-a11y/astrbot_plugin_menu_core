@@ -16,8 +16,6 @@ if str(PLUGIN_DIR) not in sys.path:
 
 # --- Queue Logging Adapter ---
 class QueueLogger:
-    """Redirects logger calls to the multiprocessing queue."""
-
     def __init__(self, queue):
         self.queue = queue
 
@@ -31,31 +29,41 @@ class QueueLogger:
         self.queue.put(("WARNING", str(msg)))
 
     def debug(self, msg, *args, **kwargs):
-        pass  # Ignore debug in production
+        pass
 
 
-def mock_astrbot_logger(queue):
+def mock_astrbot_modules(queue):
     """
-    Mock astrbot.api.logger using sys.modules injection.
-    This allows renderer.menu to import astrbot.api.logger seamlessly.
+    Mock astrbot modules required by storage.py/menu.py in subprocess
     """
+    # Mock logger
     if "astrbot.api" not in sys.modules:
-        m = ModuleType("astrbot.api")
-        m.logger = QueueLogger(queue)
-        sys.modules["astrbot.api"] = m
-        # Also mock submodules if necessary
+        m_api = ModuleType("astrbot.api")
+        m_api.logger = QueueLogger(queue)
+        sys.modules["astrbot.api"] = m_api
         import astrbot.api
-        astrbot.api.logger = m.logger
+        astrbot.api.logger = m_api.logger
+
+    # Mock StarTools (empty class) to prevent ImportErrors in storage.py
+    if "astrbot.api.star" not in sys.modules:
+        m_star = ModuleType("astrbot.api.star")
+
+        class MockStarTools:
+            @staticmethod
+            def get_data_dir(name): return Path(".")  # Dummy return
+
+        m_star.StarTools = MockStarTools
+        sys.modules["astrbot.api.star"] = m_star
 
 
 def run_server(config_dict, status_queue, log_queue, data_dir=None):
     """Web 服务进程入口"""
-    # 1. Setup Mock Logger FIRST
-    mock_astrbot_logger(log_queue)
+    # 1. Setup Mock Modules FIRST
+    mock_astrbot_modules(log_queue)
 
     try:
-        # Redirect std streams just in case
-        # sys.stdout = ... (Optionally redirect stdout to queue too, but explicit logging is better)
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
 
         from quart import Quart, request, render_template, redirect, url_for, session, jsonify, send_from_directory, \
             send_file
@@ -195,6 +203,5 @@ def run_server(config_dict, status_queue, log_queue, data_dir=None):
 
     except Exception as e:
         err_msg = traceback.format_exc()
-        # Use queue instead of stderr/print
         log_queue.put(("ERROR", f"Web Process Crash: {err_msg}"))
         status_queue.put(f"ERROR: {str(e)}")

@@ -1,12 +1,21 @@
 import json
 import uuid
 import shutil
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 # AstrBot API
-from astrbot.api.star import StarTools
-from astrbot.api import logger
+try:
+    from astrbot.api.star import StarTools
+    from astrbot.api import logger
+
+    _HAS_ASTRBOT = True
+except ImportError:
+    _HAS_ASTRBOT = False
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 class PluginStorage:
@@ -37,9 +46,11 @@ class PluginStorage:
         """
         if custom_data_dir:
             self.data_dir = Path(custom_data_dir)
-        else:
+        elif _HAS_ASTRBOT:
             # Use framework standard path
             self.data_dir = StarTools.get_data_dir("astrbot_plugin_custom_menu")
+        else:
+            self.data_dir = self.base_dir / "data"
 
         # Define sub-paths
         self.assets_dir = self.data_dir / "assets"
@@ -171,5 +182,5 @@ class PluginStorage:
         }
 
 
-# Singleton Instance
+# --- 关键：必须实例化变量 ---
 plugin_storage = PluginStorage()

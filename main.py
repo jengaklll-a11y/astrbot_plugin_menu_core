@@ -3,8 +3,8 @@ import socket
 import json
 import multiprocessing
 import traceback
-import copy
 import threading
+import time
 from pathlib import Path
 
 # AstrBot API
@@ -13,14 +13,18 @@ from astrbot.api import event
 from astrbot.api.event import filter
 from astrbot.api import logger
 
-HAS_DEPS = False
+# --- 顶层导入 Storage ---
+try:
+    from . import storage
+except ImportError:
+    storage = None
 
 
 def _get_local_ip_sync():
     """Gets local IP with a timeout to prevent long blocking"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(2.0)  # Add timeout
+        s.settimeout(2.0)
         s.connect(('8.8.8.8', 80))
         ip = s.getsockname()[0]
         s.close()
@@ -37,11 +41,10 @@ async def get_local_ip():
     "astrbot_plugin_custom_menu",
     author="shskjw",
     desc="Web可视化菜单编辑器(支持LLM智能回复)",
-    version="1.5.5"
+    version="1.6.2"
 )
 class CustomMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
-        # Fix: Star class init usually takes only context
         super().__init__(context)
         self.cfg = config
         self.web_process = None
@@ -49,22 +52,41 @@ class CustomMenuPlugin(Star):
         self._log_consumer_task = None
         self.admins_id = context.get_config().get("admins_id", [])
 
-    async def on_load(self):
-        global HAS_DEPS
-        try:
-            from . import storage
-            # Initialize storage paths explicitly
-            storage.plugin_storage.init_paths()
+        self.has_deps = False
+        self.dep_error = "插件正在初始化..."
 
-            # Run migration in thread to avoid blocking loop
+        # 启动初始化
+        self._init_task = asyncio.create_task(self._async_init())
+
+    async def _async_init(self):
+        logger.info("[CustomMenuPlugin] 开始加载资源...")
+        try:
+            if storage is None:
+                raise ImportError("storage 模块加载失败")
+
+            try:
+                import PIL
+            except ImportError:
+                raise ImportError("缺少 Pillow 库，请 pip install Pillow")
+
+            storage.plugin_storage.init_paths()
             await asyncio.to_thread(storage.plugin_storage.migrate_data)
 
             from .renderer.menu import render_one_menu
-            HAS_DEPS = True
-            logger.info("✅ 菜单插件加载完毕 (LLM Tool: show_graphical_menu 已注册)")
-        except ImportError as e:
-            logger.error(f"❌ 依赖缺失: {e}")
-            HAS_DEPS = False
+
+            self.has_deps = True
+            self.dep_error = None
+            logger.info("✅ [CustomMenuPlugin] 初始化成功")
+
+        except Exception as e:
+            err_msg = traceback.format_exc()
+            self.has_deps = False
+            self.dep_error = f"{e.__class__.__name__}: {str(e)}"
+            logger.error(f"❌ [CustomMenuPlugin] 加载失败:\n{err_msg}")
+
+    async def on_load(self):
+        if self._init_task and not self._init_task.done():
+            await self._init_task
 
     async def on_unload(self):
         if self.web_process and self.web_process.is_alive():
@@ -77,34 +99,39 @@ class CustomMenuPlugin(Star):
         return sender_id in [str(uid) for uid in self.admins_id]
 
     def _consume_logs(self):
-        """Background thread to consume logs from subprocess"""
+        """消费子进程日志"""
         while self.web_process and self.web_process.is_alive():
             try:
-                # Blocking get with timeout to check for process liveness
-                level, msg = self.log_queue.get(timeout=1.0)
-                if level == "ERROR":
-                    logger.error(f"[Web] {msg}")
-                elif level == "WARNING":
-                    logger.warning(f"[Web] {msg}")
-                else:
-                    logger.info(f"[Web] {msg}")
-            except:
+                if self.log_queue:
+                    # 使用较短的 timeout 以便能响应停止信号
+                    level, msg = self.log_queue.get(timeout=0.5)
+                    if level == "ERROR":
+                        logger.error(f"[Web] {msg}")
+                    elif level == "WARNING":
+                        logger.warning(f"[Web] {msg}")
+                    else:
+                        logger.info(f"[Web] {msg}")
+            except:  # Queue empty or other errors
                 continue
 
     async def _generate_menu_chain(self, event_obj):
-        if not HAS_DEPS:
-            yield event_obj.plain_result("❌ 插件文件不完整，无法渲染。")
+        if self._init_task and not self._init_task.done():
+            try:
+                await asyncio.wait_for(self._init_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                yield event_obj.plain_result("⚠️ 插件初始化超时")
+                return
+
+        if not self.has_deps:
+            yield event_obj.plain_result(f"❌ 插件加载失败: {self.dep_error}")
             return
 
         try:
-            from .storage import plugin_storage
             from .renderer.menu import render_one_menu
 
             logger.info("正在渲染菜单...")
 
-            # Fix: Run blocking file I/O in a separate thread
-            root_config = await asyncio.to_thread(plugin_storage.load_config)
-
+            root_config = await asyncio.to_thread(storage.plugin_storage.load_config)
             menus = root_config.get("menus", [])
             active_menus = [m for m in menus if m.get("enabled", True)]
 
@@ -123,10 +150,8 @@ class CustomMenuPlugin(Star):
                     continue
 
                 temp_filename = f"temp_render_{menu_data.get('id')}.png"
-                temp_path = (plugin_storage.data_dir / temp_filename).absolute()
-                # Saving image is also I/O bound, strictly should be threaded,
-                # but standard practice often tolerates small writes.
-                # For safety with large images, we wrap it too.
+                temp_path = (storage.plugin_storage.data_dir / temp_filename).absolute()
+
                 await asyncio.to_thread(img.save, temp_path)
 
                 logger.info(f"渲染完成，发送图片: {temp_path}")
@@ -138,15 +163,11 @@ class CustomMenuPlugin(Star):
 
     @filter.command("菜单")
     async def menu_cmd(self, event: event.AstrMessageEvent):
-        """发送功能菜单图片"""
         async for result in self._generate_menu_chain(event):
             yield result
 
     @filter.llm_tool(name="show_graphical_menu")
     async def show_menu_tool(self, event: event.AstrMessageEvent):
-        """
-        当用户询问你是谁、有什么功能、查看菜单、查看帮助、指令列表时，调用此工具。
-        """
         logger.info(f"🧠 LLM 触发了菜单工具 (User: {event.get_sender_name()})")
         async for result in self._generate_menu_chain(event):
             yield result
@@ -157,9 +178,14 @@ class CustomMenuPlugin(Star):
         if not self.is_admin(event):
             yield event.plain_result("❌ 权限不足")
             return
-        if not HAS_DEPS:
-            yield event.plain_result("❌ 缺少依赖")
+
+        if self._init_task and not self._init_task.done():
+            await asyncio.wait([self._init_task], timeout=2.0)
+
+        if not self.has_deps:
+            yield event.plain_result(f"❌ 插件加载失败: {self.dep_error}")
             return
+
         if self.web_process and self.web_process.is_alive():
             yield event.plain_result("⚠️ 后台已在运行")
             return
@@ -171,18 +197,17 @@ class CustomMenuPlugin(Star):
         self.log_queue = ctx.Queue()
 
         try:
-            # Fix: Use deepcopy instead of json load/dump
-            clean_config = copy.deepcopy(self.cfg)
+            # 安全的配置拷贝：使用 JSON 序列化确保无复杂对象
+            try:
+                clean_config = json.loads(json.dumps(self.cfg))
+            except:
+                clean_config = dict(self.cfg)
 
-            # Pass absolute path string to subprocess
-            from .storage import plugin_storage
-            if not plugin_storage.data_dir:
-                yield event.plain_result("❌ 存储路径未初始化")
-                return
+            if not storage.plugin_storage.data_dir:
+                storage.plugin_storage.init_paths()
 
-            data_dir_str = str(plugin_storage.data_dir.absolute())
+            data_dir_str = str(storage.plugin_storage.data_dir.absolute())
 
-            # Import run_server here
             from .web_server import run_server
 
             self.web_process = ctx.Process(
@@ -192,14 +217,22 @@ class CustomMenuPlugin(Star):
             )
             self.web_process.start()
 
-            # Start log consumer thread
             self._log_consumer_task = threading.Thread(target=self._consume_logs, daemon=True)
             self._log_consumer_task.start()
 
-            try:
-                msg = await asyncio.to_thread(status_queue.get, True, 10)
-            except:
-                msg = "TIMEOUT"
+            # 使用轮询替代 run_in_executor 避免兼容性问题
+            msg = "TIMEOUT"
+            for _ in range(20):  # 10 seconds total
+                try:
+                    if not status_queue.empty():
+                        msg = status_queue.get_nowait()
+                        break
+                except:
+                    pass
+                if not self.web_process.is_alive():
+                    msg = "PROCESS_DIED"
+                    break
+                await asyncio.sleep(0.5)
 
             if msg == "SUCCESS":
                 host_conf = self.cfg.get("web_host", "0.0.0.0")
@@ -212,7 +245,7 @@ class CustomMenuPlugin(Star):
                 yield event.plain_result(f"❌ 启动失败: {msg}")
 
         except Exception as e:
-            logger.error(f"启动异常: {e}")
+            logger.error(f"启动异常: {traceback.format_exc()}")
             yield event.plain_result(f"❌ 启动异常: {e}")
 
     @filter.command("关闭后台")
