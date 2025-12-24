@@ -1,0 +1,12 @@
+name: astrbot_plugin_menu_core
+display_name: 自定义菜单(Core)
+author: jengaklll-a11y
+version: 1.0.0
+desc: 基于Web可视化的自定义菜单生成插件，支持浏览器在线编辑、实时预览与一键热更新。
+repo: https://github.com/jengaklll-a11y/astrbot_plugin_menu_core
+help: |
+  使用说明：
+  1. 管理员发送「开启后台」可获得 Web 编辑地址，在浏览器中可视化配置菜单。
+  2. 配置完成后在网页点击保存。
+  3. 任何用户发送「菜单」即可获取渲染后的菜单图片。
+  4. 管理员发送「关闭后台」可停止 Web 服务。
