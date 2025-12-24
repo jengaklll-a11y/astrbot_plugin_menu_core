@@ -8,9 +8,12 @@ from astrbot.api.event import filter
 from . import storage
 from .renderer import MenuRenderer
 from .web_server import WebManager
-from .utils import MENU_REGEX_PATTERN
 
-# 修改：添加了 Repo URL 参数，使其与 metadata.yaml 保持一致
+# --- 改动：直接在这里定义触发词，不再需要 utils.py ---
+MENU_REGEX_PATTERN = r"^(菜单|menu)$"
+# -----------------------------------------------
+
+# 这里的 repo 参数已根据你的要求补全
 @register("astrbot_plugin_menu_core", "jengaklll-a11y", "自定义菜单(Core)", "1.0.0", "https://github.com/jengaklll-a11y/astrbot_plugin_menu_core")
 class CustomMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
@@ -20,7 +23,7 @@ class CustomMenuPlugin(Star):
         # 1. 初始化数据层
         self.storage = storage.PluginStorage(config)
         
-        # 2. 初始化 Web 管理层 (此时还不需要 Renderer)
+        # 2. 初始化 Web 管理层
         self.web_manager = WebManager(config, self.storage)
         
         # 3. 初始化渲染层
@@ -76,11 +79,13 @@ class CustomMenuPlugin(Star):
 
     # --- 事件处理 ---
 
+    # 使用上面定义的变量
     @filter.regex(MENU_REGEX_PATTERN)
     async def menu_regex_cmd(self, event: event.AstrMessageEvent):
         async for result in self._generate_menu(event):
             yield result
 
+    # 如果你完全不需要 LLM 触发，可以把下面这个函数删掉或注释掉
     @filter.llm_tool(name="show_graphical_menu")
     async def show_menu_tool(self, event: event.AstrMessageEvent):
         """展示图形化菜单"""
