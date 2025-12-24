@@ -21,10 +21,10 @@
             
             --accent: #0a84ff;
             --success: #30d158;
+            --danger: #ff453a;
             --radius-m: 12px;
         }
 
-        /* 浅色模式 (当 html[data-theme="light"] 时生效) */
         [data-theme="light"] {
             --bg-body: #ffffff;
             --bg-sidebar: #ffffff;
@@ -42,172 +42,118 @@
         
         * { box-sizing: border-box; outline: none; }
         ::-webkit-scrollbar { display: none; }
-        body { -ms-overflow-style: none; scrollbar-width: none; }
-        
-        body { 
-            margin: 0; padding: 0; 
-            font-family: -apple-system, "Microsoft YaHei", sans-serif;
-            background: var(--bg-body); color: var(--text-main); 
-            height: 100vh; overflow: hidden; 
-            transition: background 0.3s, color 0.3s;
-        }
+        body { margin: 0; padding: 0; font-family: -apple-system, "Microsoft YaHei", sans-serif; background: var(--bg-body); color: var(--text-main); height: 100vh; overflow: hidden; transition: background 0.3s, color 0.3s; }
         .app { display: flex; height: 100vh; width: 100vw; }
         
-        .sidebar {
-            width: 420px; background: var(--bg-sidebar); border-right: 1px solid var(--border);
-            display: flex; flex-direction: column; z-index: 20; transition: background 0.3s, border 0.3s;
-        }
-        .sidebar-header { 
-            padding: 20px; border-bottom: 1px solid var(--border); 
-            display: flex; flex-direction: column; gap: 15px; flex-shrink: 0; 
-        }
-        
+        .sidebar { width: 420px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 20; transition: background 0.3s, border 0.3s; }
+        .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 15px; flex-shrink: 0; }
         .header-top { display: flex; justify-content: space-between; align-items: center; }
         .header-title { font-weight: 800; font-size: 1.2rem; color: var(--text-main); }
-        
-        .theme-toggle { 
-            cursor: pointer; padding: 6px 12px; background: var(--glass-bg); 
-            border-radius: 20px; font-size: 1rem; user-select: none; 
-            border: 1px solid var(--border); color: var(--text-main);
-            transition: 0.2s;
-        }
+        .theme-toggle { cursor: pointer; padding: 6px 12px; background: var(--glass-bg); border-radius: 20px; font-size: 1rem; border: 1px solid var(--border); color: var(--text-main); transition: 0.2s; }
         .theme-toggle:hover { background: rgba(128,128,128,0.1); }
-
         .action-row { display: flex; gap: 10px; }
-
         .sidebar-content { flex: 1; overflow-y: auto; padding: 20px; }
         
-        /* === 修改部分开始：美化控制区 === */
-        .control-group { 
-            /* 去掉原本的大框，改为透明容器，方便做堆叠效果 */
-            background: transparent; 
-            border: none; 
-            padding: 0; 
-            margin-bottom: 25px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px; /* 卡片之间的间距 */
-        }
-        
-        /* 将每一行变成一个独立的堆叠卡片 */
-        .form-row { 
-            margin-bottom: 0; 
-            display: flex; 
-            align-items: center; 
-            justify-content: space-between; 
-            color: var(--text-main);
-            
-            background: var(--glass-bg);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-m);
-            padding: 16px; /* 增加内边距 */
-            transition: 0.2s;
-        }
-        .form-row:hover {
-            border-color: var(--accent);
-            background: rgba(128,128,128,0.1);
-        }
-
+        .control-group { background: transparent; border: none; padding: 0; margin-bottom: 25px; display: flex; flex-direction: column; gap: 12px; }
+        .form-row { margin-bottom: 0; display: flex; align-items: center; justify-content: space-between; color: var(--text-main); background: var(--glass-bg); border: 1px solid var(--border); border-radius: var(--radius-m); padding: 16px; transition: 0.2s; }
+        .form-row:hover { border-color: var(--accent); background: rgba(128,128,128,0.1); }
         label { color: var(--text-main); font-size: 0.95rem; font-weight: 600; }
-        
         input[type="range"] { flex: 1; margin-left: 15px; accent-color: var(--accent); cursor: pointer;}
-        
-        /* 修复下拉菜单文字消失 bug + 美化 */
-        select { 
-            background: var(--bg-body); /* 按钮本身背景稍微深一点 */
-            border: 1px solid var(--border); 
-            color: var(--text-main); 
-            padding: 6px 12px; 
-            border-radius: 8px; 
-            cursor: pointer;
-            outline: none;
-            min-width: 100px;
-        }
-        /* 关键修复：强制 option 背景色，防止系统默认白色导致文字看不见 */
-        select option {
-            background-color: var(--bg-sidebar);
-            color: var(--text-main);
-        }
-        /* === 修改部分结束 === */
+        select { background: var(--bg-sidebar); border: 1px solid var(--border); color: var(--text-main); padding: 6px 12px; border-radius: 8px; cursor: pointer; outline: none; min-width: 100px; }
+        select option { background-color: var(--bg-sidebar); color: var(--text-main); }
 
         .outline-group { background: var(--glass-bg); border-radius: var(--radius-m); overflow: hidden; border: 1px solid var(--border); margin-bottom: 10px; }
-        .outline-header { padding: 10px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); cursor: grab; }
+        
+        /* === 修复重点区域 Start === */
+        .outline-header { 
+            height: 54px; /* 固定高度，杜绝抖动 */
+            padding: 0 10px; 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+            border-bottom: 1px solid var(--border); 
+            cursor: grab; 
+        }
+        
+        .outline-header .deco-bar {
+            width: 4px; 
+            height: 16px; 
+            border-radius: 2px; 
+            margin: 0 8px;
+            flex-shrink: 0; /* 关键：防止色条被挤压变形 */
+        }
+        
+        .delete-wrapper { height: 32px; display: flex; align-items: center; }
+        
+        .confirm-actions {
+            height: 32px; /* 高度与按钮一致 */
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            background: var(--glass-bg);
+            /* === 修改这里: 从 16px 改为 8px，去掉了胶囊样式 === */
+            border-radius: 8px; 
+            padding: 0 4px 0 12px;
+            border: 1px solid var(--border);
+            animation: slideLeft 0.2s cubic-bezier(0.2, 0, 0, 1);
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        
+        @keyframes slideLeft {
+            from { opacity: 0; width: 32px; } /* 从按钮宽度展开 */
+            to { opacity: 1; width: 110px; } /* 估算展开宽度 */
+        }
+        
+        .btn-icon { 
+            width: 28px; 
+            height: 28px; 
+            border-radius: 8px; /* 这里也可以顺便改成 8px 保持内部一致 */
+            background: transparent; 
+            border: none; 
+            color: var(--text-sub); 
+            padding: 0; 
+            cursor: pointer; 
+            transition: 0.2s;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; /* 防止按钮被挤压 */
+        }
+        .btn-icon:hover { background: rgba(128,128,128,0.1); color: var(--text-main); transform: scale(1.1); }
+        .btn-yes { color: var(--success) !important; }
+        .btn-yes:hover { background: rgba(48, 209, 88, 0.2) !important; }
+        .btn-no { color: var(--danger) !important; }
+        .btn-no:hover { background: rgba(255, 69, 58, 0.2) !important; }
+        /* === 修复重点区域 End === */
+
         .outline-item { padding: 8px 10px 8px 30px; display: flex; align-items: center; justify-content: space-between; font-size: 0.9rem; color: var(--text-main); border-top: 1px solid transparent; }
         .outline-item:hover { background: rgba(128,128,128,0.05); }
 
         .main-area { flex: 1; background: var(--bg-body); display: flex; justify-content: center; position: relative; transition: background 0.3s; }
-        .viewport { 
-            flex: 1; overflow: auto; padding: 60px; display: flex; justify-content: center; align-items: flex-start;
-            background-color: var(--preview-bg);
-            background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px;
-            transition: background-color 0.3s;
-        }
-        
-        .canvas {
-            width: 720px; min-height: 800px;
-            background: var(--preview-bg);
-            border: 1px solid var(--border);
-            border-radius: 20px; 
-            padding: 50px 0; 
-            box-shadow: 0 0 100px rgba(0,0,0,0.1);
-            transform-origin: top center; transition: transform 0.2s, background-color 0.3s, border 0.3s;
-            margin-bottom: 100px;
-        }
-
+        .viewport { flex: 1; overflow: auto; padding: 60px; display: flex; justify-content: center; align-items: flex-start; background-color: var(--preview-bg); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; transition: background-color 0.3s; }
+        .canvas { width: 720px; min-height: 800px; background: var(--preview-bg); border: 1px solid var(--border); border-radius: 20px; padding: 50px 0; box-shadow: 0 0 100px rgba(0,0,0,0.1); transform-origin: top center; transition: transform 0.2s, background-color 0.3s, border 0.3s; margin-bottom: 100px; }
         .header-area { padding: 0 30px; margin-bottom: 20px; width: 100%; box-sizing: border-box; }
         .divider { height: 1px; background: var(--border); margin: 0 30px 40px 30px; }
-
-        .group-container { 
-            margin: 0 30px 30px 30px; padding: 25px;
-            background: var(--preview-group);
-            border-radius: 18px; border: 1px solid var(--group-border);
-            transition: background-color 0.3s, border 0.3s;
-        }
+        .group-container { margin: 0 30px 30px 30px; padding: 25px; background: var(--preview-group); border-radius: 18px; border: 1px solid var(--group-border); transition: background-color 0.3s, border 0.3s; }
         .group-header { display: flex; align-items: center; margin-bottom: 20px; }
         .group-deco { width: 6px; height: 30px; margin-right: 15px; border-radius: 3px; }
-
-        input.editable { 
-            background: transparent; border: 1px solid transparent; width: 100%; 
-            padding: 0 !important; margin: 0 !important;
-            transition: 0.2s; border-radius: 4px; font-family: inherit; line-height: 1.4;
-        }
+        input.editable { background: transparent; border: 1px solid transparent; width: 100%; padding: 0 !important; margin: 0 !important; transition: 0.2s; border-radius: 4px; font-family: inherit; line-height: 1.4; }
         input.editable:hover { border: 1px dashed var(--border); }
-        
         .text-main { font-size: 48px; font-weight: 800; color: var(--text-main) !important; margin-bottom: 10px; display: block; }
         .text-sub { font-size: 24px; color: var(--text-sub) !important; margin-bottom: 30px; display: block; }
         .text-group { font-size: 28px; color: var(--text-main) !important; font-weight: 600; flex: 1; padding: 0 !important;}
         .text-item-title { font-size: 24px; color: var(--text-main) !important; margin-bottom: 4px; font-weight: 600; padding: 0 !important;}
         .text-item-desc { font-size: 18px; color: var(--text-sub) !important; padding: 0 !important;}
-
         .menu-grid { display: grid; gap: 15px; }
-        .menu-card {
-            height: 80px; position: relative; cursor: move; border-radius: 12px;
-            background: var(--glass-bg); border: 1px solid var(--glass-border);
-            display: flex; overflow: hidden; transition: 0.2s;
-        }
+        .menu-card { height: 80px; position: relative; cursor: move; border-radius: 12px; background: var(--glass-bg); border: 1px solid var(--glass-border); display: flex; overflow: hidden; transition: 0.2s; }
         .menu-card:hover { transform: scale(1.02); border-color: var(--accent); z-index: 10; }
         .card-bar { width: 6px; height: 100%; opacity: 0.8; }
         .card-content { flex: 1; padding: 0 20px; display: flex; flex-direction: column; justify-content: center; }
-
-        .btn { 
-            padding: 10px 20px; 
-            border-radius: 99px;
-            border: none; 
-            font-weight: bold; 
-            cursor: pointer; 
-            display: flex; 
-            align-items: center; 
-            gap: 6px; 
-            transition: 0.2s;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
+        .btn { padding: 10px 20px; border-radius: 99px; border: none; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         .btn:active { transform: scale(0.98); }
-
         .btn-primary { background: var(--accent); color: white; width: 100%; justify-content: center;}
         .btn-success { background: var(--success); color: white; width: 100%; justify-content: center;}
         .btn-ghost { background: transparent; color: var(--text-sub); }
-        .btn-icon { background: transparent; color: var(--text-sub); padding: 4px; cursor: pointer; }
-
+        
         .switch { position: relative; width: 36px; height: 20px; display: inline-block; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); border-radius: 20px; transition: .3s; }
@@ -218,7 +164,7 @@
         .modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px); z-index: 2000; display: flex; justify-content: center; align-items: center; }
         .preview-image { max-width: 90%; max-height: 90vh; border-radius: 12px; box-shadow: 0 20px 80px rgba(0,0,0,0.5); }
         
-        .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-50px); background: #333; color: white; padding: 10px 20px; border-radius: 30px; opacity: 0; transition: 0.3s; pointer-events: none; z-index: 3000; }
+        .toast { position: absolute; top: 40px; left: 50%; transform: translateX(-50%) translateY(-50px); background: #333; color: white; padding: 8px 24px; border-radius: 30px; opacity: 0; transition: 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28); pointer-events: none; z-index: 3000; font-size: 1rem; font-weight: bold; box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
         .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     </style>
 </head>
@@ -266,12 +212,27 @@
 
                 <div v-for="(group, gIdx) in config.groups" :key="gIdx" class="outline-group"
                      draggable="true" @dragstart="dragStartGroup(gIdx, $event)" @dragover.prevent @drop="dropOnGroupList(gIdx)">
+                    
                     <div class="outline-header">
                         <span style="cursor:grab; color:var(--text-sub)">☰</span>
-                        <div style="width:4px; height:16px; border-radius:2px; margin:0 8px;" :style="{background: getGroupColor(gIdx)}"></div>
+                        
+                        <div class="deco-bar" :style="{background: getGroupColor(gIdx)}"></div>
+                        
                         <input type="text" v-model="group.title" style="flex:1; background:transparent; border:none; font-weight:600; color:var(--text-main)" placeholder="分组名">
                         
-                        <button class="btn-icon" @click="removeGroup(gIdx)">🗑️</button>
+                        <div class="delete-wrapper">
+                            <button v-if="deleteTargetIdx !== gIdx" 
+                                    class="btn-icon" 
+                                    @click="askDelete(gIdx)" 
+                                    title="删除分组">🗑️</button>
+                            
+                            <div v-else class="confirm-actions">
+                                <span style="font-size:12px; color:var(--text-sub); margin-right:2px; white-space:nowrap; line-height: 1;">确认?</span>
+                                <button class="btn-icon btn-yes" @click="removeGroup(gIdx)">✅</button>
+                                <button class="btn-icon btn-no" @click="cancelDelete()">❌</button>
+                            </div>
+                        </div>
+
                     </div>
                     
                     <div v-if="group.enabled !== false">
@@ -282,11 +243,16 @@
                                     <input type="checkbox" v-model="item.enabled">
                                     <span class="slider"></span>
                                 </label>
-                                <span class="btn-icon" @click="removeItem(gIdx, iIdx)">×</span>
+                                <span class="btn-icon" @click="removeItem(gIdx, iIdx)" title="删除功能">×</span>
                             </div>
                         </div>
-                        <div style="text-align:center; padding:5px;">
-                            <button class="btn btn-ghost" style="font-size:0.8rem; width:100%" @click="addItem(gIdx)">+ 添加功能</button>
+                        
+                        <div style="text-align:center; padding:10px 10px 10px 10px;">
+                            <button class="btn" 
+                                    style="font-size:0.8rem; width:100%; background: rgba(0,0,0,0.2); border: 1px dashed var(--border); color: var(--text-sub);" 
+                                    @click="addItem(gIdx)">
+                                + 添加功能
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -295,6 +261,8 @@
         </div>
 
         <div class="main-area">
+            <div :class="['toast', toastClass]">{{ toastMsg }}</div>
+
             <div class="viewport">
                 <div class="canvas" :style="{ transform: `scale(${zoom})`, transformOrigin: 'top center' }">
                     <div class="header-area">
@@ -336,7 +304,6 @@
             <div v-if="previewLoading" style="color:white; font-size:1.2rem;">正在渲染高清图片...</div>
             <img v-if="previewUrl && !previewLoading" :src="previewUrl" class="preview-image">
         </div>
-        <div :class="['toast', toastClass]">{{ toastMsg }}</div>
     </div>
 
     <script>
@@ -345,22 +312,24 @@
         createApp({
             data() {
                 return {
-                    config: { title: "AstrBot", subtitle: "", groups: [], design: { layout_columns: 2, theme: 'dark' } },
+                    config: { 
+                        title: "AstrBot", 
+                        subtitle: "", 
+                        groups: [], 
+                        design: { layout_columns: 2, theme: 'dark', title_align: 'center' } 
+                    },
                     zoom: 1.0, dragSrc: null, saving: false, toastMsg: "", toastClass: "",
-                    showPreview: false, previewLoading: false, previewUrl: null
+                    showPreview: false, previewLoading: false, previewUrl: null,
+                    deleteTargetIdx: -1
                 }
             },
             mounted() { this.loadConfig(); },
             
-            // === 核心逻辑：监听配置变化，直接修改 HTML 属性 ===
             watch: {
                 config: {
                     handler(val) {
-                        // 如果数据里没有theme，给个默认值
                         if (!val.design) val.design = { theme: 'dark' };
                         const theme = val.design.theme || 'dark';
-                        
-                        // 直接操作最顶层 DOM，权重最高
                         document.documentElement.setAttribute('data-theme', theme);
                     },
                     deep: true,
@@ -370,28 +339,22 @@
             
             methods: {
                 getDesign() { 
-                    if (!this.config.design) this.config.design = { layout_columns: 2, theme: 'dark' };
+                    if (!this.config.design) this.config.design = {};
+                    if (this.config.design.layout_columns === undefined) this.config.design.layout_columns = 2;
+                    if (!this.config.design.title_align) this.config.design.title_align = 'center';
                     if (!this.config.design.theme) this.config.design.theme = 'dark';
                     return this.config.design; 
                 },
                 getGroupColor(idx) { 
-                    // 使用 HSL 算法生成无限不重复颜色
-                    // 210是初始蓝色，每次增加137.5度（黄金角）
                     const hue = (210 + (idx * 137.5)) % 360;
                     return `hsl(${hue}, 85%, 60%)`;
                 },
-                
                 toggleTheme() { 
                     const d = this.getDesign();
                     d.theme = d.theme === 'light' ? 'dark' : 'light';
-                    // watch 会自动处理 DOM 更新
                 },
-                
                 shouldRenderGroup(group) {
                     if (group.enabled === false) return false;
-                    // 【修复】允许渲染空分组，以便显示添加按钮
-                    if (!group.menus || group.menus.length === 0) return true;
-                    // 【修复】只有当明确设置 enabled 为 false 时才隐藏，否则默认显示
                     return true;
                 },
                 async loadConfig() {
@@ -440,7 +403,9 @@
                     this.dragSrc = null;
                 },
                 addGroup() { this.config.groups.push({ title: "新分组", enabled: true, align: "left", menus: [] }); },
-                removeGroup(idx) { if(confirm("删除?")) this.config.groups.splice(idx, 1); },
+                askDelete(idx) { this.deleteTargetIdx = idx; },
+                cancelDelete() { this.deleteTargetIdx = -1; },
+                removeGroup(idx) { this.config.groups.splice(idx, 1); this.deleteTargetIdx = -1; },
                 addItem(gIdx) { this.config.groups[gIdx].menus.push({ name: "功能", desc: "", enabled: true }); },
                 removeItem(gIdx, iIdx) { this.config.groups[gIdx].menus.splice(iIdx, 1); },
                 showToast(msg) { this.toastMsg = msg; this.toastClass = "show"; setTimeout(() => this.toastClass = "", 2000); }
