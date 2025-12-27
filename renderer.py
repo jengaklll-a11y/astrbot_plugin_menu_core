@@ -2,24 +2,20 @@ import asyncio
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 import random
-from astrbot.api import logger
+import math
 import urllib.request
 import traceback
 
 class MenuRenderer:
     def __init__(self, storage_instance):
         self.storage = storage_instance
-        # 使用 storage 中统一定义的字体目录
         self.font_dir = self.storage.font_dir
-        
-        # 字体路径映射
         self.fonts = {
             "heavy":   self.font_dir / "font_heavy.otf",
             "bold":    self.font_dir / "font_bold.otf",
             "medium":  self.font_dir / "font_medium.otf",
             "regular": self.font_dir / "font_regular.otf"
         }
-
         self.urls = {
             "heavy":   "https://github.com/adobe-fonts/source-han-sans/raw/release/OTF/SimplifiedChinese/SourceHanSansSC-Heavy.otf",
             "bold":    "https://github.com/adobe-fonts/source-han-sans/raw/release/OTF/SimplifiedChinese/SourceHanSansSC-Bold.otf",
@@ -29,14 +25,11 @@ class MenuRenderer:
         self.mirror_base = "https://ghproxy.net/"
 
     async def render_menu_image(self) -> Path:
-        """主入口：Bot调用（异步下载，同步渲染）"""
         if not all(path.exists() for path in self.fonts.values()):
             await self._download_font_async()
         return await asyncio.to_thread(self._render_logic)
 
     def render_sync_for_web(self, config_data) -> Path:
-        """Web入口：直接渲染（同步）"""
-        # Web 预览时不强制下载字体，如果不存在会降级
         return self._render_logic(config_data)
 
     async def _download_font_async(self):
@@ -45,29 +38,15 @@ class MenuRenderer:
     def _ensure_font_exists_sync(self):
         if not self.font_dir.exists(): 
             self.font_dir.mkdir(parents=True, exist_ok=True)
-            
         for style, path in self.fonts.items():
             if not path.exists():
-                url = self.urls[style]
-                mirror_url = self.mirror_base + url
-                logger.info(f"正在下载字体 ({style})...")
-                try: urllib.request.urlretrieve(mirror_url, path)
-                except:
-                    try: urllib.request.urlretrieve(url, path)
-                    except: logger.error(f"字体({style})下载失败")
+                try: urllib.request.urlretrieve(self.mirror_base + self.urls[style], path)
+                except: pass
 
     def _get_font(self, size, weight="regular"):
-        """智能字体获取"""
-        # 1. 尝试获取指定字重
         target_path = self.fonts.get(weight, self.fonts["regular"])
         if target_path.exists():
-            try: return ImageFont.truetype(str(target_path), int(size))
-            except: pass
-        # 2. 降级到 Regular
-        if self.fonts["regular"].exists():
-             try: return ImageFont.truetype(str(self.fonts["regular"]), int(size))
-             except: pass
-        # 3. 系统默认
+            return ImageFont.truetype(str(target_path), int(size))
         return ImageFont.load_default()
 
     def _draw_text_centered(self, draw, text, font, center_y, width, align='left', color=(255,255,255), padding=90):
@@ -81,40 +60,29 @@ class MenuRenderer:
         draw.text((x, center_y - 8), text, fill=color, font=font, anchor=anchor)
 
     def _render_logic(self, config_data=None):
-        """核心渲染逻辑 (保持原有绘图代码不变)"""
-        # 加载配置
         config = config_data if config_data else self.storage.load_config()
+        mode = config.get("design", {}).get("layout_mode", "list")
+        
+        if mode == "grid":
+            return self._render_grid_mode(config)
+        else:
+            return self._render_list_mode(config)
+
+    def _render_list_mode(self, config):
         design = config.get("design", {})
-        
-        # ... (此处省略具体的绘图代码，与原 renderer.py 中 _render_sync 完全一致，只需复制原来的绘图逻辑即可) ...
-        # ... 为节省篇幅，这里假设你保留了原来 _render_sync 函数内的所有绘图代码 ...
-        
-        # 以下是绘图代码的开头部分示例，请确保完整复制原有逻辑：
         global_scale = design.get("global_scale", 1.0)
         SCALE = 3 
         theme = design.get("theme", "dark")
         
-        # 颜色定义...
         if theme == 'light':
-            BG_COLOR = (255, 255, 255)
-            GROUP_BG_COLOR = (242, 242, 247)
-            GROUP_BORDER = (229, 229, 234)
-            ITEM_BG_COLOR = (0, 0, 0, 10)
-            ITEM_BORDER_COLOR = (0, 0, 0, 13)
-            TEXT_MAIN = (0, 0, 0)
-            TEXT_SUB = (108, 108, 112)
-            DIVIDER_COLOR = (229, 229, 234)
+            BG_COLOR = (255, 255, 255); GROUP_BG_COLOR = (242, 242, 247); GROUP_BORDER = (229, 229, 234)
+            ITEM_BG_COLOR = (0, 0, 0, 10); ITEM_BORDER_COLOR = (0, 0, 0, 13)
+            TEXT_MAIN = (0, 0, 0); TEXT_SUB = (108, 108, 112); DIVIDER_COLOR = (229, 229, 234)
         else:
-            BG_COLOR = (0, 0, 0)
-            GROUP_BG_COLOR = (28, 28, 30)
-            GROUP_BORDER = (56, 56, 58)
-            ITEM_BG_COLOR = (255, 255, 255, 20)
-            ITEM_BORDER_COLOR = (255, 255, 255, 30)
-            TEXT_MAIN = (255, 255, 255)
-            TEXT_SUB = (142, 142, 147)
-            DIVIDER_COLOR = (56, 56, 58)
+            BG_COLOR = (0, 0, 0); GROUP_BG_COLOR = (28, 28, 30); GROUP_BORDER = (56, 56, 58)
+            ITEM_BG_COLOR = (255, 255, 255, 20); ITEM_BORDER_COLOR = (255, 255, 255, 30)
+            TEXT_MAIN = (255, 255, 255); TEXT_SUB = (142, 142, 147); DIVIDER_COLOR = (56, 56, 58)
 
-        # 数据预处理...
         groups = config.get("groups", [])
         if not groups and config.get("menus"): groups = [{"title": "列表", "enabled":True, "menus": config.get("menus")}]
         
@@ -127,31 +95,29 @@ class MenuRenderer:
                 new_g["menus"] = active_items
                 active_groups_info.append((i, new_g))
         
-        if not active_groups_info and not config_data: return None
+        if not active_groups_info and not config: return None
 
-        # 布局计算...
-        width = 720 * SCALE
+        width = 800 * SCALE
+        
         padding = 30 * SCALE
         gap = 15 * SCALE
         base_title_size = 48 * SCALE * global_scale
         base_sub_size = 24 * SCALE * global_scale
         base_group_size = 28 * SCALE * global_scale
-        base_item_size = 24 * SCALE * global_scale
-        base_desc_size = 18 * SCALE * global_scale
+        base_item_size = 18 * SCALE * global_scale
+        base_desc_size = 14 * SCALE * global_scale
         
         item_height = 70 * SCALE 
         group_header_height = 50 * SCALE 
         col_count = max(1, min(5, design.get("layout_columns", 2))) 
         title_align = design.get("title_align", "center")
 
-        # 字体...
         font_main = self._get_font(base_title_size, weight="heavy")
         font_sub = self._get_font(base_sub_size, weight="regular")
         font_grp = self._get_font(base_group_size, weight="bold")
         font_item = self._get_font(base_item_size, weight="medium")
         font_desc = self._get_font(base_desc_size, weight="regular")
 
-        # 高度计算...
         container_padding = 20 * SCALE
         current_y = (40 * SCALE) + base_title_size + (10 * SCALE)
         subtitle = config.get("subtitle", "")
@@ -169,13 +135,10 @@ class MenuRenderer:
             
         total_height = max(current_y + (40 * SCALE), 300 * SCALE)
         
-        # 绘图...
         img = Image.new('RGBA', (width, int(total_height)), color=(*BG_COLOR, 255))
         draw = ImageDraw.Draw(img)
         
         cursor_y = 40 * SCALE
-        
-        # 标题绘制...
         title_padding = 30 * SCALE
         self._draw_text_centered(draw, config.get("title", "Menu"), font_main, cursor_y + (base_title_size/2), width, title_align, TEXT_MAIN, padding=title_padding)
         cursor_y += base_title_size + (10 * SCALE)
@@ -190,7 +153,6 @@ class MenuRenderer:
         
         colors = [(10, 132, 255), (48, 209, 88), (255, 159, 10), (255, 69, 58), (191, 90, 242), (100, 210, 255)]
         
-        # 分组循环...
         for original_idx, group in active_groups_info:
             menus = group.get("menus", [])
             item_count = len(menus)
@@ -199,12 +161,7 @@ class MenuRenderer:
             if content_h < 0: content_h = 0
             
             group_box_h = container_padding * 2 + group_header_height + content_h
-            
-            # 分组容器
-            draw.rounded_rectangle(
-                [30*SCALE, cursor_y, width-(30*SCALE), cursor_y + group_box_h],
-                radius=18*SCALE, fill=GROUP_BG_COLOR, outline=GROUP_BORDER, width=int(1*SCALE)
-            )
+            draw.rounded_rectangle([30*SCALE, cursor_y, width-(30*SCALE), cursor_y + group_box_h], radius=18*SCALE, fill=GROUP_BG_COLOR, outline=GROUP_BORDER, width=int(1*SCALE))
             
             inner_cursor_y = cursor_y + container_padding
             grp_center_y = inner_cursor_y + (group_header_height / 2)
@@ -213,10 +170,7 @@ class MenuRenderer:
             
             if g_align == 'left':
                 bar_top = grp_center_y - (base_group_size / 2)
-                draw.rounded_rectangle(
-                    [padding + (20*SCALE), bar_top, padding + (26*SCALE), bar_top + base_group_size],
-                    radius=3*SCALE, fill=bar_color_rgb
-                )
+                draw.rounded_rectangle([padding + (20*SCALE), bar_top, padding + (26*SCALE), bar_top + base_group_size], radius=3*SCALE, fill=bar_color_rgb)
                 text_padding = padding + (35*SCALE)
             else:
                 text_padding = padding + (20*SCALE)
@@ -234,11 +188,9 @@ class MenuRenderer:
                 x = start_x_abs + col * (card_width + gap)
                 y = inner_cursor_y
                 
-                # 卡片绘制
                 card_img = Image.new('RGBA', (int(card_width), int(item_height)), (0,0,0,0))
                 c_draw = ImageDraw.Draw(card_img)
                 c_draw.rectangle([0, 0, card_width, item_height], fill=ITEM_BG_COLOR, outline=None)
-                c_draw.rectangle([0, 0, 6*SCALE, item_height], fill=bar_color_rgb)
                 
                 mask = Image.new('L', (int(card_width), int(item_height)), 0)
                 m_draw = ImageDraw.Draw(mask)
@@ -275,16 +227,128 @@ class MenuRenderer:
             
             cursor_y += group_box_h + (20 * SCALE)
 
-        # 底部水印
         draw.text((width - (150*SCALE), total_height - (30*SCALE)), "AstrBot Menu", fill=TEXT_SUB, font=self._get_font(12*SCALE))
+        return self._save_image(img, config)
+
+    def _render_grid_mode(self, config):
+        design = config.get("design", {})
+        SCALE = 2 
+        canvas_width = 800 * SCALE
+        padding = 30 * SCALE
+        gap = 20 * SCALE
         
-        prefix = "preview_" if config_data else "menu_"
+        theme = design.get("theme", "dark")
+        grid_cols = design.get("grid_columns", 4)
+        title_align = design.get("title_align", "center") 
+        
+        font_title = self._get_font(40 * SCALE, "heavy")
+        font_sub = self._get_font(20 * SCALE, "regular")
+        font_w_title = self._get_font(24 * SCALE, "bold")
+        font_item = self._get_font(20 * SCALE, "medium")
+        
+        is_light = theme == 'light'
+        bg_color = (242, 242, 247) if is_light else (0, 0, 0)
+        widget_bg = (255, 255, 255) if is_light else (28, 28, 30)
+        text_main = (0, 0, 0) if is_light else (255, 255, 255)
+        text_sub = (100, 100, 100) if is_light else (150, 150, 150)
+        deco_colors = [(10, 132, 255), (48, 209, 88), (255, 159, 10), (255, 69, 58), (191, 90, 242)]
+
+        available_width = canvas_width - (padding * 2)
+        col_unit_width = (available_width - (gap * (grid_cols - 1))) / grid_cols
+        
+        cursor_y = padding + (80 * SCALE)
+        current_x = padding
+        current_row_max_h = 0
+        
+        layout_items = []
+        
+        groups = config.get("groups", [])
+        for idx, group in enumerate(groups):
+            if not group.get("enabled", True): continue
+            
+            span = min(group.get("span", 2), grid_cols)
+            inner_cols = group.get("cols", 1)
+            menus = [m for m in group.get("menus", []) if m.get("enabled", True)]
+            
+            if not menus: continue
+            
+            widget_w = (col_unit_width * span) + (gap * (span - 1))
+            
+            header_h = 40 * SCALE
+            item_h = 50 * SCALE
+            rows = math.ceil(len(menus) / inner_cols)
+            content_h = (rows * item_h) + ((rows - 1) * 10 * SCALE) if rows > 0 else 0
+            widget_h = header_h + content_h + (30 * SCALE)
+            
+            if current_x + widget_w > canvas_width - padding + 5: 
+                cursor_y += current_row_max_h + gap
+                current_x = padding
+                current_row_max_h = 0
+            
+            layout_items.append({
+                "x": current_x, "y": cursor_y, "w": widget_w, "h": widget_h,
+                "data": group, "idx": idx, "menus": menus, "inner_cols": inner_cols
+            })
+            
+            current_x += widget_w + gap
+            current_row_max_h = max(current_row_max_h, widget_h)
+            
+        total_height = cursor_y + current_row_max_h + padding
+        
+        img = Image.new('RGB', (int(canvas_width), int(total_height)), bg_color)
+        draw = ImageDraw.Draw(img)
+        
+        self._draw_text_centered(draw, config.get("title", "Menu"), font_title, padding + 20*SCALE, canvas_width, title_align, text_main, padding=padding)
+        if config.get("subtitle"):
+            self._draw_text_centered(draw, config.get("subtitle"), font_sub, padding + 55*SCALE, canvas_width, title_align, text_sub, padding=padding)
+
+        for item in layout_items:
+            x, y, w, h = item["x"], item["y"], item["w"], item["h"]
+            draw.rounded_rectangle([x, y, x+w, y+h], radius=16*SCALE, fill=widget_bg)
+            
+            color = deco_colors[item["idx"] % len(deco_colors)]
+            
+            draw.rounded_rectangle([x+15*SCALE, y+20*SCALE, x+20*SCALE, y+44*SCALE], radius=2*SCALE, fill=color)
+            draw.text((x + 30*SCALE, y+20*SCALE), item["data"].get("title", "分组"), fill=text_main, font=font_w_title)
+            
+            start_cx = x + 15*SCALE
+            start_cy = y + 60*SCALE
+            inner_cols = item["inner_cols"]
+            content_w = w - 30*SCALE
+            cell_w = (content_w - (10*SCALE * (inner_cols-1))) / inner_cols
+            cell_h = 50 * SCALE
+            
+            for m_i, menu in enumerate(item["menus"]):
+                r = m_i // inner_cols
+                c = m_i % inner_cols
+                cx = start_cx + c * (cell_w + 10*SCALE)
+                cy = start_cy + r * (cell_h + 10*SCALE)
+                
+                draw.rounded_rectangle([cx, cy, cx+cell_w, cy+cell_h], radius=8*SCALE, fill=bg_color)
+                
+                name = menu.get("name", "")
+                try: tw = draw.textlength(name, font_item)
+                except: tw = font_item.getlength(name)
+                
+                if tw > cell_w - 10*SCALE: 
+                    name = name[:4] + ".."
+                    try: tw = draw.textlength(name, font_item)
+                    except: tw = font_item.getlength(name)
+                    
+                draw.text((cx + (cell_w-tw)/2, cy + (cell_h-20*SCALE)/2 - 4*SCALE), name, fill=text_main, font=font_item)
+
+        return self._save_image(img, config)
+
+    def _save_image(self, img, config):
+        prefix = "preview_" if config.get("is_preview") else "menu_"
         filename = f"{prefix}{random.randint(1000,9999)}.png"
-        
-        # 使用 storage.data_dir 来保存生成的图片
         save_path = self.storage.bot_data_root / filename
         
-        final_img = Image.new("RGB", img.size, BG_COLOR)
-        final_img.paste(img, mask=img.split()[3])
+        if img.mode == 'RGBA':
+            final_img = Image.new("RGB", img.size, (255, 255, 255))
+            final_img.paste(img, mask=img.split()[3])
+        else:
+            final_img = img
+            
         final_img.save(save_path)
         return save_path
